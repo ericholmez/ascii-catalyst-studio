@@ -20,9 +20,9 @@ Deploy the contents of `dist/` to any static server. Use a trailing slash for su
 
 ## Workspaces
 
-| Workspace | Available in v0.5 |
+| Workspace | Available in v0.6 |
 | --- | --- |
-| Create | Eight conversion methods, 18 built-in styles, local presets, seeded variations, crop, perspective correction, texture filters, tone curve, automatic and painted masks, histogram, and cell inspector. |
+| Create | Eight conversion methods, 18 built-in styles, local presets, seeded variations, palette extraction, crop, perspective correction, texture filters, tone curve, automatic and painted masks, histogram, and cell inspector. |
 | Character Lab | Editable ramps, fonts, glyph coverage, bounding dimensions, axis bias, artwork usage, sorting, and text export. |
 | Compositor | Glyph brush, eraser, and typography layers with order, position, rotation, opacity and blending. |
 | Text Lab | Repeated text sequences with image-driven glyph opacity. |
@@ -38,6 +38,8 @@ Open **Perspective** to mark four corners on the original image. Select top-left
 In **Texture**, **Median cleanup** smooths isolated luminance speckles and **Pixel block size** averages colours across blocks. **Tone curve** maps five input levels to adjustable outputs.
 
 In **Masks**, keep a luminance range or sample a key colour directly from the original. Open **Paint mask** and draw with **Hide**, or use **Erase mask (restore)** to remove those marks. Brush size is a percentage of the shorter source edge. **Apply painted mask** lets you compare with the brush marks bypassed. Enable **Transparent background** for alpha-capable exports.
+
+Under **Colour and dithering**, set **Ink colours** to **Custom palette**. Extract up to 16 colours from the prepared image, edit individual swatches, or paste and copy HEX lists. Try it with the **Colour Study** sample. Projects and saved presets retain the custom palette.
 
 ## Compatibility and storage
 

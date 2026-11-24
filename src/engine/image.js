@@ -108,7 +108,7 @@ export function drawFramedSource(ctx, original, settings) {
   ctx.restore();
 }
 
-export const SAMPLES = ['Concrete Study', 'Orbital Field', 'Calibration Chart', 'Perspective Chart'];
+export const SAMPLES = ['Concrete Study', 'Orbital Field', 'Calibration Chart', 'Perspective Chart', 'Colour Study'];
 
 export function sampleImage(name = SAMPLES[0], phase = 0, seed = 14) {
   const canvas = makeCanvas(960, 720);
@@ -205,6 +205,28 @@ export function sampleImage(name = SAMPLES[0], phase = 0, seed = 14) {
       const [u, v] = project(x, y);
       ctx.fillStyle = '#f2f2f2';
       ctx.fillRect(u - 5, v - 5, 10, 10);
+    }
+  } else if (name === SAMPLES[4]) {
+    const sky = ctx.createLinearGradient(0, 0, 0, 480);
+    sky.addColorStop(0, '#1b1c43');
+    sky.addColorStop(1, '#935f83');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, 960, 720);
+    ctx.fillStyle = '#f4ba79';
+    ctx.beginPath();
+    ctx.arc(490, 310, 160, 0, Math.PI * 2);
+    ctx.fill();
+    polygon([[0, 463], [143, 300], [251, 358], [319, 273], [418, 419],
+      [577, 315], [648, 354], [754, 259], [960, 442], [960, 720], [0, 720]], '#353459');
+    polygon([[0, 494], [158, 416], [250, 478], [401, 404], [541, 473], [676, 426],
+      [818, 487], [960, 416], [960, 720], [0, 720]], '#58677d');
+    polygon([[0, 552], [149, 531], [316, 570], [481, 501], [651, 561],
+      [797, 513], [960, 557], [960, 720], [0, 720]], '#3a8590');
+    for (let i = 0; i < 13; i++) {
+      const y = 565 + i * 11;
+      const center = 490 + Math.sin(i * 1.7) * 28;
+      ctx.fillStyle = i % 3 === 0 ? '#f3bc82' : '#c8878a';
+      ctx.fillRect(center - 19 - i * 7, y, 38 + i * 14, 2 + (i % 3));
     }
   } else {
     const ramp = ctx.createLinearGradient(85, 0, 875, 0);

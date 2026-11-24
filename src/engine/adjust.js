@@ -1,6 +1,7 @@
 import { clamp, hexRgb, luminance, randomAt } from './math.js';
 import { CURVE_KEYS } from './settings.js';
 import { medianCleanup, pixelate } from './filters.js';
+import { extractPalette } from './palette.js';
 
 const BINS = 256;
 
@@ -183,4 +184,9 @@ export function adjustImage(pixels, width, height, settings, paintedMask) {
     }
   }
   return { light, colors, histogram };
+}
+
+export function extractImagePalette(pixels, width, height, settings, paintedMask, count) {
+  const { colors } = adjustImage(pixels, width, height, settings, paintedMask);
+  return extractPalette(colors, count);
 }

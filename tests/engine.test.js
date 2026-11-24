@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { convert } from '../src/engine/convert.js';
-import { adjustImage } from '../src/engine/adjust.js';
+import { adjustImage, extractImagePalette } from '../src/engine/adjust.js';
+import { DEFAULT_PALETTE, extractPalette, parsePalette } from '../src/engine/palette.js';
 import { normalizeMaskStrokes, sampleMaskAlpha } from '../src/engine/paint-mask.js';
 import { perspectiveMatrix, perspectiveSize, projectPoint, validPerspective, warpPerspective } from '../src/engine/perspective.js';
 import { glyphOrientation, PATCH_W, PATCH_H } from '../src/engine/glyphs.js';
@@ -328,4 +329,39 @@ test('project files validate painted masks and preserve the bypass switch', () =
   const restored = validateProject({ format: 'ASCII-CATALYST', version: 1, maskStrokes: [stroke], paintMaskEnabled: false });
   assert.equal(restored.maskStrokes.length, 1);
   assert.equal(restored.paintMaskEnabled, false);
+});
+
+test('palette extraction is deterministic and alpha weighted', () => {
+  const pixels = Uint8ClampedArray.from([255, 0, 0, 0, 16, 24, 32, 255, 23, 31, 39, 1, 210, 180, 120, 255]);
+  assert.deepEqual(extractPalette(pixels, 4), ['#101820', '#d2b478']);
+  assert.deepEqual(extractPalette(pixels, 1), ['#71664c']);
+  assert.deepEqual(extractPalette(new Uint8ClampedArray(4), 6), []);
+  assert.deepEqual(extractPalette(pixels, 4), extractPalette(pixels, 4));
+});
+
+test('source palette extraction only includes pixels visible after preparation', () => {
+  const pixels = Uint8ClampedArray.from([20, 40, 70, 255, 160, 100, 50, 255]);
+  const settings = normalizeSettings({ contrast: 0, invert: true });
+  const mask = Uint8ClampedArray.from([255, 0]);
+  assert.deepEqual(extractImagePalette(pixels, 2, 1, settings, mask, 6), ['#ebd7b9']);
+});
+
+test('custom palette restricts both half-block colours to exact swatches', () => {
+  const source = pixels(1, 1, (_, y) => y < 4 ? [20, 30, 70, 255] : [240, 210, 130, 255]);
+  const art = convert(source, 1, 1, atlas,
+    { contrast: 0, mode: 'half', color: 'palette', palette: ['#121d45', '#eacf80'] });
+  assert.deepEqual([...art.foreground], [18, 29, 69, 255]);
+  assert.deepEqual([...art.background], [234, 207, 128, 255]);
+});
+
+test('HEX lists validate their length and round-trip through projects', async () => {
+  const palette = parsePalette('ABC, #102030\n#fEd');
+  assert.deepEqual(palette, ['#aabbcc', '#102030', '#ffeedd']);
+  assert.throws(() => parsePalette('#123 red'), /HEX colours/);
+  assert.throws(() => parsePalette(Array(17).fill('#fff').join(' ')), /1 to 16/);
+  const old = validateProject({ format: 'ASCII-CATALYST', version: 1 });
+  assert.deepEqual(old.settings.palette, DEFAULT_PALETTE);
+  const project = { format: 'ASCII-CATALYST', version: 1, settings: { color: 'palette', palette } };
+  const restored = validateProject(JSON.parse(await serializeProject(project)));
+  assert.deepEqual(restored.settings.palette, palette);
 });

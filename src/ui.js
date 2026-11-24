@@ -1,6 +1,7 @@
 import { escapeMarkup as esc, FORMATS } from './engine/export.js';
 import { CURVE_KEYS, MODES, PRESETS, RAMPS } from './engine/settings.js';
 import { SAMPLES } from './engine/image.js';
+import { MAX_PALETTE_SIZE } from './engine/palette.js';
 
 export const WORKSPACES = {
   create: 'Create', characters: 'Character Lab', compositor: 'Compositor', text: 'Text Lab',
@@ -163,6 +164,27 @@ function maskControls(state) {
     + hint('Enable Transparent background under Colour and dithering to export with alpha.'));
 }
 
+function paletteControls(state) {
+  const palette = state.settings.palette;
+  const swatches = palette.map((color, index) => {
+    const attributes = attr('palette-swatch', index);
+    const label = String(index + 1);
+    return '<div class="palette-swatch">'
+      + '<input type="color" aria-label="Pick colour ' + label + '" value="' + esc(color) + '"' + attributes + '>'
+      + '<input type="text" aria-label="HEX colour ' + label + '" value="' + esc(color)
+      + '" maxlength="7" spellcheck="false" autocomplete="off"' + attributes + '>'
+      + button('×', 'remove-swatch', attributes + ' aria-label="Remove colour ' + label + '"'
+        + (palette.length === 1 ? ' disabled' : '')) + '</div>';
+  }).join('');
+  const counts = Array.from({ length: MAX_PALETTE_SIZE - 1 }, (_, i) => [i + 2, i + 2]);
+  return '<div class="palette-controls">' + select('palette-count', 'Colours to extract', state.paletteCount, counts, 'palette-count')
+    + actions(button(state.paletteBusy ? 'Extracting…' : 'Extract from image', 'extract-palette',
+      state.paletteBusy || !state.source ? ' disabled' : ''))
+    + '<div class="palette-swatches" role="group" aria-label="Custom palette">' + swatches + '</div>'
+    + actions(button('Add colour', 'add-swatch', palette.length === MAX_PALETTE_SIZE ? ' disabled' : ''),
+      button('Edit HEX list', 'edit-palette'), button('Copy HEX', 'copy-palette')) + '</div>';
+}
+
 function createControls(state) {
   const s = state.settings;
   return sourceControls(state) + framingControls(state) + perspectiveControls(state)
@@ -204,9 +226,11 @@ function createControls(state) {
       + range('shape', 'Shape fidelity', s.shape, 0, 100)
       + check('map', 'Show method influence', state.map, 'view-setting'))
     + details('Colour and dithering', select('color', 'Ink colours', s.color,
-      [['mono', 'Monochrome'], ['source', 'Source colours'], ['gray4', 'Four-tone grey'], ['ansi16', 'ANSI 16'], ['duotone', 'Duotone']])
+      [['mono', 'Monochrome'], ['source', 'Source colours'], ['gray4', 'Four-tone grey'],
+        ['ansi16', 'ANSI 16'], ['duotone', 'Duotone'], ['palette', 'Custom palette']])
       + (s.color === 'mono' ? input('foreground', 'Foreground', s.foreground, 'color') : '')
       + (s.color === 'duotone' ? input('lowInk', 'Shadow ink', s.lowInk, 'color') + input('highInk', 'Highlight ink', s.highInk, 'color') : '')
+      + (s.color === 'palette' ? paletteControls(state) : '')
       + input('background', 'Background', s.background, 'color')
       + check('transparent', 'Transparent background', s.transparent)
       + range('saturation', 'Saturation', s.saturation, 0, 200)
@@ -444,3 +468,7 @@ export const projectNameMarkup = (state) => input('dialog-project-name', 'Projec
 export const presetNameMarkup = () => '<div class="field"><label for="preset-name">Preset name</label>'
   + '<input type="text" id="preset-name" maxlength="48" autocomplete="off" autofocus></div>'
   + actions(button('Save locally', 'save-preset-local', ' class="primary"'));
+
+export const paletteListMarkup = (palette) => textarea('palette-hex-list', 'HEX colours', palette.join('\n'), 'palette-list')
+  + hint('Separate up to 16 colours with spaces, commas, or new lines.')
+  + actions(button('Apply palette', 'apply-hex-list', ' class="primary"'));

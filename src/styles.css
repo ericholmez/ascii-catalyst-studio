@@ -216,6 +216,13 @@ body:has(> .catalyst) { margin: 0; }
 .curve-chart { width: 100%; height: 112px; background: var(--deep); display: block; border: 1px solid var(--line); }
 .curve-labels { display: flex; justify-content: space-between; color: var(--mute); font-size: .72rem; margin-top: 5px; }
 .mask-paint-controls { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 9px; }
+.palette-controls { margin: 10px 0 14px; }
+.palette-swatches { display: grid; gap: 5px; margin-top: 10px; }
+.palette-swatch { display: grid; grid-template-columns: 33px minmax(0, 1fr) 30px; gap: 4px; align-items: stretch; }
+.palette-swatch input[type="color"] { cursor: pointer; padding: 3px; }
+.palette-swatch input[type="text"], .palette-swatch button { min-height: 31px; }
+.palette-swatch input[type="text"] { padding-inline: 5px; }
+.palette-swatch button { padding-inline: 3px; }
 .split-line { position: absolute; top: 0; bottom: 0; width: 1px; background: #fff; pointer-events: none; }
 .stage-meta, .stage-bottom { display: flex; pointer-events: none; position: absolute; justify-content: space-between; z-index: 1; left: 12px; right: 12px; color: #aaa; font-size: .68rem; letter-spacing: .06em; }
 .stage-meta { top: 9px; }

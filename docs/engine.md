@@ -34,6 +34,8 @@ Painted masks store strokes in normalized coordinates on the original source. Th
 
 Duotone interpolates two user-chosen ink colours using each cell’s adjusted luminance. Half blocks use independent colours for their upper and lower samples.
 
+Palette extraction samples the prepared frame at up to 100 cells on its longer axis, with tone, filters, and both kinds of mask applied. A 5-bit-per-channel histogram ignores transparent samples and weights the remaining colours by alpha. Weighted median-cut splits the histogram into up to 16 groups, uses their weighted mean RGB values as swatches, and sorts them by display luminance. Custom palette conversion assigns each cell to the nearest swatch by weighted squared RGB distance. Half blocks apply the same mapping to each half. Glyph selection still uses the source luminance.
+
 `art.cells` is a row-major `Uint16Array` of indices into `art.glyphs`. RGBA arrays hold foreground and optional per-cell background. `opacity` controls glyph alpha. `influence` records the selected method and `usage` counts glyph IDs. The worker transfers array buffers, and the editor terminates outdated workers. Browsers that block workers use a synchronous fallback.
 
 An atlas entry stores ink coverage, bounding box, center of mass, a 4×8 opacity mask, and a doubled-angle orientation vector derived from the gradient tensor. Width measurement rejects many incompatible glyphs. Canvas cannot reliably distinguish all missing glyphs from replacements.

@@ -100,9 +100,9 @@ function structuralGlyph(entries, patch, tone, direction, strength, settings, de
   return chosen;
 }
 
-function putColor(buffer, index, r, g, b, alpha, mode, duo) {
+function putColor(buffer, index, r, g, b, alpha, mode, duo, palette) {
   if (mode === 'gray4') r = g = b = Math.round(luminance(r, g, b) / 85) * 85;
-  if (mode === 'ansi16') [r, g, b] = ANSI16[nearestPalette(r, g, b)];
+  if (palette) [r, g, b] = palette[nearestPalette(r, g, b, palette)];
   if (duo) {
     const tone = luminance(r, g, b) / 255;
     const [low, high] = duo;
@@ -122,6 +122,7 @@ export function convert(pixels, cols, rows, atlas, input = {}, options = {}) {
   const width = cols * PATCH_W;
   const { light, colors, histogram } = adjustImage(pixels, width, rows * PATCH_H, settings, options.paintedMask);
   const duo = settings.color === 'duotone' ? [hexRgb(settings.lowInk), hexRgb(settings.highInk)] : null;
+  const palette = settings.color === 'palette' ? settings.palette.map(hexRgb) : settings.color === 'ansi16' ? ANSI16 : null;
   const gradients = ['edges', 'structure', 'hybrid'].includes(settings.mode)
     ? gradientMap(light, width, rows * PATCH_H, settings.edgeOperator) : null;
   const entries = atlas.entries.map((item, id) => ({ ...item, id }));
@@ -257,13 +258,13 @@ export function convert(pixels, cols, rows, atlas, input = {}, options = {}) {
       if (settings.color !== 'mono') {
         if (background) {
           if (a && aa) {
-            putColor(foreground, index, r / a, g / a, b / a, a / 16, settings.color, duo);
-            putColor(background, index, rr / aa, gg / aa, bb / aa, aa / 16, settings.color, duo);
+            putColor(foreground, index, r / a, g / a, b / a, a / 16, settings.color, duo, palette);
+            putColor(background, index, rr / aa, gg / aa, bb / aa, aa / 16, settings.color, duo, palette);
           } else if (a || aa) {
-            putColor(foreground, index, (r + rr) / (a + aa), (g + gg) / (a + aa), (b + bb) / (a + aa), (a + aa) / 16, settings.color, duo);
+            putColor(foreground, index, (r + rr) / (a + aa), (g + gg) / (a + aa), (b + bb) / (a + aa), (a + aa) / 16, settings.color, duo, palette);
           }
         } else if (a + aa) {
-          putColor(foreground, index, (r + rr) / (a + aa), (g + gg) / (a + aa), (b + bb) / (a + aa), 255, settings.color, duo);
+          putColor(foreground, index, (r + rr) / (a + aa), (g + gg) / (a + aa), (b + bb) / (a + aa), 255, settings.color, duo, palette);
         }
       }
       if (detail) diagnostic = {

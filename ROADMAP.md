@@ -1,12 +1,12 @@
 # Roadmap
 
-## v0.5
+## v0.6
 
-Source preparation includes four-corner perspective correction, crop and aligned comparison, a five-point tone curve, texture filters, and automatic and painted masks. Palette extraction and custom palette controls are the next conversion milestone.
+The colour pipeline supports source palette extraction, editable HEX swatches, and custom-palette inks. Independent colour dithering is the next conversion milestone.
 
 ## Conversion and diagnosis
 
-- Expand tone mapping, palette extraction, custom palettes, and independent colour dithering.
+- Add independent colour dithering and expand tone mapping.
 - Add contour continuity, multi-cell optimization, adaptive Braille, quarter blocks and connected box drawing.
 - Add glyph priorities, editable density charts and more detailed diagnostics.
 - Validate glyph coverage against font character maps and broaden the bundled Unicode repertoire.

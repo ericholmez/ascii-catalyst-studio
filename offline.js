@@ -4,7 +4,7 @@ const cachePrefix = 'ascii-catalyst:' + self.registration.scope + ':';
 const CACHE = cachePrefix + ASSETS;
 const files = ['styles.css', 'app.js', 'ui.js', 'media.js', 'project.js', 'worker.js',
   'engine/adjust.js', 'engine/convert.js', 'engine/filters.js', 'engine/glyphs.js',
-  'engine/paint-mask.js', 'engine/perspective.js', 'engine/image.js', 'engine/math.js',
+  'engine/paint-mask.js', 'engine/palette.js', 'engine/perspective.js', 'engine/image.js', 'engine/math.js',
   'engine/render.js', 'engine/settings.js', 'engine/export.js', 'fonts/inter-latin-wght-normal.woff2',
   'fonts/ibm-plex-mono-latin-400-normal.woff2', 'fonts/ibm-plex-mono-latin-700-normal.woff2'];
 

@@ -1,4 +1,5 @@
 import { randomAt } from './math.js';
+import { DEFAULT_PALETTE, normalizePalette } from './palette.js';
 import { validPerspective } from './perspective.js';
 
 export const RAMPS = {
@@ -28,6 +29,7 @@ export const DEFAULTS = Object.freeze({
   maskMode: 'off', maskThreshold: 50, maskTolerance: 18, maskFeather: 10, maskColor: '#808080', maskInvert: false,
   sampling: 'average', mapping: 'linear', foreground: '#eaeaea', background: '#101010',
   transparent: false, color: 'mono', lowInk: '#3f5d9c', highInk: '#f0e5bf', dither: 'none', intensity: 35, seed: 42,
+  palette: DEFAULT_PALETTE,
   edge: 54, shape: 40, threshold: 48, edgeOperator: 'sobel', polarity: 'light',
   quality: 'standard', dropout: 0, text: 'TEXT AS MEDIUM. DATA AS MATERIAL. ', scale: 2,
 });
@@ -118,7 +120,7 @@ const choices = {
   mapping: ['linear', 'gamma', 'equalized'], edgeOperator: ['sobel', 'scharr', 'prewitt'],
   grayscale: ['perceptual', 'linear', 'average'], polarity: ['light', 'dark'],
   maskMode: ['off', 'highlights', 'shadows', 'colour'],
-  color: ['mono', 'source', 'ansi16', 'gray4', 'duotone'], dither: ['none', 'random', 'bayer', 'floyd', 'atkinson'],
+  color: ['mono', 'source', 'ansi16', 'gray4', 'duotone', 'palette'], dither: ['none', 'random', 'bayer', 'floyd', 'atkinson'],
   quality: ['draft', 'standard', 'final'], rotation: [0, 90, 180, 270], weight: [400, 700],
 };
 const ranges = {
@@ -140,7 +142,10 @@ export function normalizeSettings(input = {}) {
   for (const key of Object.keys(DEFAULTS)) {
     const value = input[key];
     if (value == null) continue;
-    if (key === 'perspective') {
+    if (key === 'palette') {
+      const palette = normalizePalette(value);
+      if (palette.length) s.palette = palette;
+    } else if (key === 'perspective') {
       if (validPerspective(value)) s.perspective = value.slice();
     } else if (choices[key]) {
       if (choices[key].includes(value)) s[key] = value;

@@ -1,8 +1,10 @@
 import { convert } from './engine/convert.js';
+import { extractImagePalette } from './engine/adjust.js';
 import { fontMetrics, glyphAtlas, PATCH_W, PATCH_H } from './engine/glyphs.js';
 import { correctedSource, decodeImage, drawFramedSource, sampleImage, sampleSource, SAMPLES } from './engine/image.js';
 import { clamp, cropRect, gridSize, rgbHex } from './engine/math.js';
 import { drawMaskStroke, maskSurface, MAX_MASK_STROKES, MAX_STROKE_POINTS, sampleMaskAlpha } from './engine/paint-mask.js';
+import { MAX_PALETTE_SIZE, normalizeSwatch, parsePalette } from './engine/palette.js';
 import { validPerspective } from './engine/perspective.js';
 import { renderComposition } from './engine/render.js';
 import { CROP_KEYS, CURVE_KEYS, DEFAULTS, MASK_KEYS, MODES, normalizeSettings, PRESETS, RAMPS,
@@ -11,7 +13,7 @@ import { artworkText, download, escapeMarkup, exportArtwork } from './engine/exp
 import { normalizeLayers, presetStorage, projectSource, serializeProject, snapshotProject, storage, validateProject } from './project.js';
 import { MediaSession } from './media.js';
 import { button, controlsMarkup, dialogMarkup, inspectorMarkup, outputControls, paintCurve, paintInspector, paintPerspectiveGuide,
-  paintedStrokeLabel, presetNameMarkup, projectNameMarkup, quality, samplesMarkup, WORKSPACES } from './ui.js';
+  paintedStrokeLabel, paletteListMarkup, presetNameMarkup, projectNameMarkup, quality, samplesMarkup, WORKSPACES } from './ui.js';
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -34,6 +36,7 @@ const state = {
   name: 'Untitled', projectId: null, settings: { ...DEFAULTS }, source: null, art: null,
   metrics: null, atlas: null, workspace: 'create', view: 'art', advanced: false, activePreset: -1,
   presets: [], presetGroup: 'Featured',
+  paletteCount: 6, paletteBusy: false,
   sourceTool: null, toolView: 'art', draftCrop: null,
   draftCorners: [], cornerCursor: { x: .15, y: .15 },
   maskStrokes: [], paintMaskEnabled: true, paintBrushMode: 'hide', paintBrushSize: 12, paintHardness: 100,
@@ -228,6 +231,62 @@ function paintedSamples(frame, settings) {
     source.width, source.height, settings);
   sampledMask = { frame, strokes: state.maskStrokes, alpha };
   return alpha;
+}
+
+async function paletteFromFrame(frame, settings, count) {
+  const { cols, rows, pixels } = frame;
+  const paintedMask = paintedSamples(frame, settings);
+  const fallback = () => extractImagePalette(pixels, cols * PATCH_W, rows * PATCH_H, settings, paintedMask, count);
+  if (workerUnavailable || typeof Worker !== 'function') return fallback();
+  let extractor;
+  try {
+    extractor = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+    return await new Promise((resolve, reject) => {
+      extractor.onmessage = ({ data }) => data.error ? reject(new Error(data.error)) : resolve(data.palette);
+      extractor.onerror = reject;
+      extractor.onmessageerror = reject;
+      const rgba = pixels.slice(), mask = paintedMask?.slice();
+      extractor.postMessage({ type: 'extract-palette', pixels: rgba, cols, rows, settings, count, paintedMask: mask },
+        mask ? [rgba.buffer, mask.buffer] : [rgba.buffer]);
+    });
+  } catch {
+    return fallback();
+  } finally {
+    extractor?.terminate();
+  }
+}
+
+async function extractSourcePalette() {
+  if (!state.source || state.paletteBusy) return;
+  const source = state.source.canvas;
+  const settings = state.settings;
+  const metrics = fontMetrics(settings);
+  const grid = gridSize(source.width, source.height, metrics.cellWidth, metrics.cellHeight, settings);
+  const scale = Math.min(1, 100 / Math.max(grid.cols, grid.rows));
+  const cols = Math.max(1, Math.round(grid.cols * scale));
+  const rows = Math.max(1, Math.round(grid.rows * scale));
+  const count = state.paletteCount;
+  state.paletteBusy = true;
+  const trigger = $('[data-action="extract-palette"]');
+  if (trigger) {
+    trigger.disabled = true;
+    trigger.textContent = 'Extracting…';
+  }
+  try {
+    const frame = { source, cols, rows, pixels: sampleSource(source, cols, rows, settings) };
+    const palette = await paletteFromFrame(frame, settings, count);
+    if (state.source?.canvas !== source || state.workspace !== 'create' || state.settings.color !== 'palette') return;
+    if (!palette.length) throw new Error('The prepared source has no visible colours to extract.');
+    changeSettings({ palette });
+    toast((palette.length === 1 ? 'Extracted 1 colour.' : 'Extracted ' + palette.length + ' colours.'));
+  } finally {
+    state.paletteBusy = false;
+    const button = $('[data-action="extract-palette"]');
+    if (button) {
+      button.disabled = !state.source;
+      button.textContent = 'Extract from image';
+    }
+  }
 }
 
 function renderJob() {
@@ -569,7 +628,7 @@ function changeSettings(patch, { history = true, rebuild = true, delay = 0 } = {
 function choosePreset(index) {
   const [name, , config] = PRESETS[index];
   applyPreset(index, {
-    ...DEFAULTS, font: state.settings.font, weight: state.settings.weight,
+    ...DEFAULTS, font: state.settings.font, weight: state.settings.weight, palette: state.settings.palette,
     ...config, ramp: RAMPS[config.library] || DEFAULTS.ramp,
   });
   toast(name + ' applied.');
@@ -836,6 +895,30 @@ const actionHandlers = {
   },
   'reset-tone': () => changeSettings(Object.fromEntries(TONE_KEYS.map((key) => [key, DEFAULTS[key]]))),
   'reset-texture': () => changeSettings(Object.fromEntries(TEXTURE_KEYS.map((key) => [key, DEFAULTS[key]]))),
+  'extract-palette': extractSourcePalette,
+  'add-swatch': () => {
+    const palette = state.settings.palette;
+    if (palette.length >= MAX_PALETTE_SIZE) return;
+    changeSettings({ palette: [...palette, state.settings.foreground] });
+    $('input[type="text"][data-palette-swatch="' + palette.length + '"]')?.focus();
+  },
+  'remove-swatch': (node) => {
+    const index = Number(node.dataset.paletteSwatch);
+    const palette = state.settings.palette.filter((_, i) => i !== index);
+    if (!palette.length) return;
+    changeSettings({ palette });
+    $('input[type="text"][data-palette-swatch="' + Math.min(index, palette.length - 1) + '"]')?.focus();
+  },
+  'edit-palette': () => showDialog('palette', 'Edit HEX palette', paletteListMarkup(state.settings.palette)),
+  'apply-hex-list': () => {
+    const palette = parsePalette($('#palette-hex-list').value);
+    dialog.close();
+    changeSettings({ palette });
+  },
+  'copy-palette': async () => {
+    await navigator.clipboard.writeText(state.settings.palette.join('\n'));
+    toast('Palette HEX colours copied.');
+  },
   'reset-curve': () => changeSettings(Object.fromEntries(CURVE_KEYS.map((key) => [key, DEFAULTS[key]]))),
   'reset-crop': () => changeSettings(Object.fromEntries(CROP_KEYS.map((key) => [key, DEFAULTS[key]]))),
   'reset-mask': () => {
@@ -988,8 +1071,30 @@ const inputValue = (node) => node.type === 'checkbox' ? node.checked
   : node.type === 'number' || node.type === 'range' ? node.valueAsNumber : node.value;
 let streamingControl;
 
+function editSwatch(node, color, options) {
+  const index = Number(node.dataset.paletteSwatch);
+  if (state.settings.palette[index] !== color) {
+    const palette = state.settings.palette.slice();
+    palette[index] = color;
+    changeSettings({ palette }, { ...options, rebuild: false });
+  }
+  for (const sibling of node.closest('.palette-swatch').querySelectorAll('input')) {
+    if (sibling !== node) sibling.value = color;
+  }
+}
+
 app.addEventListener('input', (event) => {
   const node = event.target;
+  if (node.dataset.paletteSwatch != null) {
+    const color = normalizeSwatch(node.value);
+    if (!color || !/^#?[a-f\d]{6}$/i.test(node.value.trim())) return;
+    if (streamingControl !== node && color !== state.settings.palette[Number(node.dataset.paletteSwatch)]) {
+      streamingControl = node;
+      recordHistory();
+    }
+    editSwatch(node, color, { history: false, delay: 105 });
+    return;
+  }
   if (node.dataset.paintBrush && node.type === 'number') {
     if (Number.isFinite(node.valueAsNumber)) {
       state[node.dataset.paintBrush] = clamp(Math.round(node.valueAsNumber), Number(node.min), Number(node.max));
@@ -1051,6 +1156,18 @@ app.addEventListener('change', async (event) => {
       const paired = node.closest('.range');
       if (paired && !rebuild) for (const item of paired.querySelectorAll('input')) item.value = state.settings[key];
       if (['foreground', 'background', 'transparent', 'scale'].includes(key)) showInspector();
+    } else if (node.dataset.paletteSwatch != null) {
+      const color = normalizeSwatch(value);
+      const isStreaming = streamingControl === node;
+      streamingControl = null;
+      if (!color) {
+        node.value = state.settings.palette[Number(node.dataset.paletteSwatch)];
+        throw new Error('Enter a HEX colour such as #1e3054 or #abc.');
+      }
+      editSwatch(node, color, { history: !isStreaming });
+      node.value = color;
+    } else if (node.dataset.paletteCount) {
+      state.paletteCount = clamp(Number(value), 2, MAX_PALETTE_SIZE);
     } else if (node.dataset.paintBrush) {
       const key = node.dataset.paintBrush;
       state[key] = node.type === 'number' ? clamp(Math.round(value), Number(node.min), Number(node.max)) : value;
