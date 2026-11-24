@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101010">
+  <meta name="description" content="A browser-local studio for turning images into character-based art.">
+  <meta name="ascii-repository" content="">
+  <title>ASCII-CATALYST / Studio</title>
+  <link rel="stylesheet" href="./src/styles.css">
+  <script type="module" src="./src/app.js"></script>
+</head>
+<body>
+<main class="catalyst" id="app">
+  <header class="topbar">
+    <a class="wordmark" href="#studio" aria-label="ASCII-Catalyst Studio"><span class="brand-mark" aria-hidden="true">[<b>░</b>]</span> ASCII<span class="dim">–</span>CATALYST</a>
+    <nav class="workspaces" aria-label="Workspaces">
+      <a href="#studio">Studio</a><a href="#characters">Character Lab</a><a href="#compositor">Compositor</a>
+      <a href="#text">Text Lab</a><a href="#motion">Motion</a><a href="#live">Live</a>
+      <a href="#archive">Archive</a><a href="#output">Output</a><a href="#index">Index</a>
+    </nav>
+    <button class="icon-button settings-top" data-action="settings" title="Studio settings" aria-label="Studio settings">⚙</button>
+  </header>
+  <section class="heading">
+    <div>
+      <p class="eyebrow">ASCII-CATALYST / <span id="workspace-id">01</span></p>
+      <h1 id="workspace-title">Studio<span>.</span></h1>
+      <p id="workspace-description">Text as medium. Data as material.</p>
+    </div>
+    <div class="project-actions">
+      <div class="button-group" aria-label="Project history">
+        <button class="icon-button" data-action="undo" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>↶</button>
+        <button class="icon-button" data-action="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled>↷</button>
+      </div>
+      <button data-action="new">New</button><button data-action="open">Open</button><button data-action="save">Save</button>
+      <button class="primary" data-action="export">Export <span aria-hidden="true">↓</span></button>
+    </div>
+  </section>
+  <div class="workspace">
+    <aside class="controls" aria-label="Conversion controls">
+      <header class="panel-bar"><span>Parameters</span><button class="text-button" data-action="advanced" aria-pressed="false">Advanced</button></header>
+      <div class="panel-content" id="controls"></div>
+    </aside>
+    <section class="artwork" aria-label="Artwork workspace">
+      <div class="artwork-bar">
+        <div class="view-tabs" role="group" aria-label="Preview mode">
+          <button data-view="art" aria-pressed="true">Artwork</button><button data-view="source" aria-pressed="false">Original</button><button data-view="split" aria-pressed="false">Compare</button>
+        </div>
+        <div class="canvas-tools" aria-label="Artwork tools">
+          <button data-action="zoom-out" title="Zoom out" aria-label="Zoom out">−</button><button data-action="fit" id="zoom" title="Fit artwork to viewport">Fit</button><button data-action="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
+          <button data-action="grid" aria-label="Toggle grid" title="Toggle grid" aria-pressed="false">▦</button>
+          <button data-action="present" aria-label="Presentation mode" title="Presentation mode (F)">⛶</button>
+        </div>
+      </div>
+      <div class="viewport" id="viewport" tabindex="0" aria-label="Interactive artwork viewport. Use plus and minus to zoom, zero to fit, or drag to pan.">
+        <div class="stage-meta" aria-hidden="true"><span>+ <span id="stage-label">ASCII / PREVIEW</span></span><span id="stage-coordinates">X 0000 / Y 0000</span></div>
+        <div class="artboard" id="artboard">
+          <canvas id="art-canvas" role="img" aria-label="Character artwork preview"></canvas>
+          <canvas id="source-canvas" role="img" aria-label="Original source image preview" hidden></canvas>
+          <div class="split-line" hidden></div>
+        </div>
+        <div class="empty-art" hidden>
+          <strong>Load a source image</strong>
+          <span>Drop a file here or choose an image to begin.</span>
+          <button data-action="upload">Choose image</button>
+        </div>
+        <label class="compare-control" hidden>Compare <input type="range" id="split" min="0" max="100" value="50"></label>
+        <div class="stage-bottom" aria-hidden="true"><span>+</span><span>+</span></div>
+      </div>
+      <footer class="artwork-footer">
+        <span><i class="status-dot"></i><span id="render-status" role="status">Preparing preview</span></span>
+        <button data-action="cancel" class="text-button" hidden>Cancel</button>
+        <span id="canvas-size">—</span>
+      </footer>
+    </section>
+    <aside class="inspector" aria-label="Workspace inspector">
+      <header class="panel-bar"><span id="inspector-title">Inspector</span><button class="text-button" data-action="hide-inspector" aria-expanded="true" aria-label="Collapse inspector">−</button></header>
+      <div class="panel-content" id="inspector"></div>
+    </aside>
+  </div>
+  <footer class="statusbar" id="statusbar" aria-label="Artwork statistics">
+    <span><i class="status-dot"></i> LOCAL ENGINE</span><span id="stat-grid">GRID —</span>
+    <span id="stat-cells">CELLS —</span><span id="stat-glyphs">GLYPHS —</span>
+    <span id="stat-mode">MODE —</span><span id="stat-quality">STANDARD</span>
+    <span id="stat-time">—</span>
+  </footer>
+  <input type="file" id="image-file" accept="image/*,.svg,.bmp,.avif" hidden>
+  <input type="file" id="project-file" accept=".acatalyst,application/json" hidden>
+  <input type="file" id="video-file" accept="video/*,image/gif" hidden>
+  <dialog id="dialog"><div id="dialog-content"></div></dialog>
+  <div class="toast" id="toast" role="status" hidden></div>
+</main>
+</body>
+</html>
