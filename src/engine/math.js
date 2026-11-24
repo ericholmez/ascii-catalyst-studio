@@ -53,12 +53,14 @@ export const ANSI16 = [
   '#808080', '#ff0000', '#00ff00', '#ffff00', '#0000ff', '#ff00ff', '#00ffff', '#ffffff',
 ].map(hexRgb);
 
+export const paletteDistance = (r, g, b, [pr, pg, pb]) => .2126 * (pr - r) ** 2
+  + .7152 * (pg - g) ** 2 + .0722 * (pb - b) ** 2;
+
 export function nearestPalette(r, g, b, palette = ANSI16) {
   let score = Infinity;
   let best = 0;
   for (let i = 0; i < palette.length; i++) {
-    const [pr, pg, pb] = palette[i];
-    const distance = .2126 * (pr - r) ** 2 + .7152 * (pg - g) ** 2 + .0722 * (pb - b) ** 2;
+    const distance = paletteDistance(r, g, b, palette[i]);
     if (distance < score) {
       score = distance;
       best = i;

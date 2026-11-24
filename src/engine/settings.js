@@ -30,6 +30,7 @@ export const DEFAULTS = Object.freeze({
   sampling: 'average', mapping: 'linear', foreground: '#eaeaea', background: '#101010',
   transparent: false, color: 'mono', lowInk: '#3f5d9c', highInk: '#f0e5bf', dither: 'none', intensity: 35, seed: 42,
   palette: DEFAULT_PALETTE,
+  colorDither: 'none', colorDitherStrength: 70, colorDitherSeed: 42,
   edge: 54, shape: 40, threshold: 48, edgeOperator: 'sobel', polarity: 'light',
   quality: 'standard', dropout: 0, text: 'TEXT AS MEDIUM. DATA AS MATERIAL. ', scale: 2,
 });
@@ -121,6 +122,7 @@ const choices = {
   grayscale: ['perceptual', 'linear', 'average'], polarity: ['light', 'dark'],
   maskMode: ['off', 'highlights', 'shadows', 'colour'],
   color: ['mono', 'source', 'ansi16', 'gray4', 'duotone', 'palette'], dither: ['none', 'random', 'bayer', 'floyd', 'atkinson'],
+  colorDither: ['none', 'random', 'bayer', 'floyd', 'atkinson'],
   quality: ['draft', 'standard', 'final'], rotation: [0, 90, 180, 270], weight: [400, 700],
 };
 const ranges = {
@@ -134,6 +136,7 @@ const ranges = {
   soften: [0, 100], detail: [0, 100], grain: [0, 100], posterize: [0, 16], cutoff: [0, 100],
   denoise: [0, 100], pixelSize: [1, 24],
   black: [0, 99], white: [1, 100], saturation: [0, 200], intensity: [0, 100],
+  colorDitherStrength: [0, 100], colorDitherSeed: [0, 2147483647],
   seed: [0, 2147483647], edge: [0, 100], shape: [0, 100], threshold: [0, 100], dropout: [0, 100], scale: [1, 8],
 };
 

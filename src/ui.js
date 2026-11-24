@@ -35,6 +35,8 @@ const textarea = (key, name, value, group = 'setting') => field(name, '<textarea
   + attr(group, key) + ' spellcheck="false">' + esc(value) + '</textarea>', key);
 const actions = (...buttons) => '<div class="compact-actions">' + buttons.join('') + '</div>';
 const pairs = (object) => Object.entries(object);
+const ditherMethods = [['none', 'None'], ['bayer', 'Ordered Bayer'], ['random', 'Seeded noise'],
+  ['floyd', 'Floyd–Steinberg'], ['atkinson', 'Atkinson']];
 
 function sourceControls(state) {
   return section('Source image', '<button class="source-drop" data-action="upload"><span aria-hidden="true">＋</span> Import image</button>'
@@ -228,6 +230,13 @@ function createControls(state) {
     + details('Colour and dithering', select('color', 'Ink colours', s.color,
       [['mono', 'Monochrome'], ['source', 'Source colours'], ['gray4', 'Four-tone grey'],
         ['ansi16', 'ANSI 16'], ['duotone', 'Duotone'], ['palette', 'Custom palette']])
+      + select('dither', 'Glyph dithering', s.dither, ditherMethods)
+      + range('intensity', 'Glyph dither strength', s.intensity, 0, 100)
+      + (['palette', 'ansi16', 'gray4'].includes(s.color)
+        ? select('colorDither', 'Colour dithering', s.colorDither, ditherMethods)
+          + (s.colorDither !== 'none' ? range('colorDitherStrength', 'Colour dither strength', s.colorDitherStrength, 0, 100) : '')
+          + (s.colorDither === 'random' ? number('colorDitherSeed', 'Colour dither seed', s.colorDitherSeed, 0, 2147483647) : '')
+        : '')
       + (s.color === 'mono' ? input('foreground', 'Foreground', s.foreground, 'color') : '')
       + (s.color === 'duotone' ? input('lowInk', 'Shadow ink', s.lowInk, 'color') + input('highInk', 'Highlight ink', s.highInk, 'color') : '')
       + (s.color === 'palette' ? paletteControls(state) : '')
@@ -237,9 +246,7 @@ function createControls(state) {
       + range('vibrance', 'Vibrance', s.vibrance, -100, 100)
       + range('temperature', 'Temperature', s.temperature, -100, 100)
       + range('tint', 'Tint', s.tint, -100, 100)
-      + select('polarity', 'Ink polarity', s.polarity, [['light', 'Light ink'], ['dark', 'Dark ink']])
-      + select('dither', 'Dithering', s.dither, [['none', 'None'], ['bayer', 'Ordered Bayer'], ['random', 'Seeded noise'], ['floyd', 'Floyd–Steinberg'], ['atkinson', 'Atkinson']])
-      + range('intensity', 'Dither intensity', s.intensity, 0, 100))
+      + select('polarity', 'Ink polarity', s.polarity, [['light', 'Light ink'], ['dark', 'Dark ink']]))
     + (state.advanced ? details('Sampling and effects', select('grayscale', 'Luminance', s.grayscale,
         [['perceptual', 'Weighted display RGB'], ['linear', 'Linear-light sRGB'], ['average', 'RGB average']])
         + select('sampling', 'Cell sample', s.sampling, ['average', 'center', 'minimum', 'maximum', 'median', 'gaussian'].map((key) => [key, key]))
@@ -309,7 +316,7 @@ const INDEX_TOPICS = [
   ['Glyph density', 'Density is the fraction of a cell covered by rasterized ink. The Character Lab measures this for the active font and spacing.', 'Open Character Lab', 'index-characters'],
   ['Luminance and polarity', 'Linear-light sRGB weights red, green and blue by 0.2126, 0.7152 and 0.0722. Choose light or dark ink to match the artwork background.', 'Classic tonal', 'index-tonal'],
   ['Structure and edges', 'A Sobel gradient measures changes across neighboring samples. Shape matching compares a rasterized glyph with the local image patch.', 'Shape matching', 'index-structure'],
-  ['Dithering', 'Error diffusion distributes part of each cell’s density error to nearby cells. Ordered Bayer dithering applies a repeating threshold matrix.', 'Floyd–Steinberg', 'index-dither'],
+  ['Dithering', 'Glyph dithering varies character density. Palette, ANSI 16, and four-tone grey also offer independent colour dithering with ordered or error-diffusion patterns.', 'Floyd–Steinberg', 'index-dither'],
   ['Aspect ratio', 'Rows depend on the source aspect ratio and the measured advance and line height of the chosen font. Increasing export scale keeps the same characters.', 'Fit artwork', 'fit'],
   ['Terminal output', 'ANSI adds colour escape sequences to text. CP437 NFO stores single-byte IBM PC characters and requires a CP437-aware viewer.', 'Open Output', 'index-output'],
 ];

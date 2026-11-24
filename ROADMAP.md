@@ -1,12 +1,12 @@
 # Roadmap
 
-## v0.6
+## v0.7
 
-The colour pipeline supports source palette extraction, editable HEX swatches, and custom-palette inks. Independent colour dithering is the next conversion milestone.
+The colour pipeline supports source palette extraction, editable HEX swatches, custom-palette inks, and independent colour dithering. Expanded tone mapping is the next conversion milestone.
 
 ## Conversion and diagnosis
 
-- Add independent colour dithering and expand tone mapping.
+- Expand tone mapping.
 - Add contour continuity, multi-cell optimization, adaptive Braille, quarter blocks and connected box drawing.
 - Add glyph priorities, editable density charts and more detailed diagnostics.
 - Validate glyph coverage against font character maps and broaden the bundled Unicode repertoire.

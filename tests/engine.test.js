@@ -4,6 +4,7 @@ import { convert } from '../src/engine/convert.js';
 import { adjustImage, extractImagePalette } from '../src/engine/adjust.js';
 import { DEFAULT_PALETTE, extractPalette, parsePalette } from '../src/engine/palette.js';
 import { normalizeMaskStrokes, sampleMaskAlpha } from '../src/engine/paint-mask.js';
+import { ditherInks } from '../src/engine/dithering.js';
 import { perspectiveMatrix, perspectiveSize, projectPoint, validPerspective, warpPerspective } from '../src/engine/perspective.js';
 import { glyphOrientation, PATCH_W, PATCH_H } from '../src/engine/glyphs.js';
 import { braille, cropRect, gridSize, linear, luminance, nearestPalette, randomAt } from '../src/engine/math.js';
@@ -364,4 +365,56 @@ test('HEX lists validate their length and round-trip through projects', async ()
   const project = { format: 'ASCII-CATALYST', version: 1, settings: { color: 'palette', palette } };
   const restored = validateProject(JSON.parse(await serializeProject(project)));
   assert.deepEqual(restored.settings.palette, palette);
+});
+
+test('colour dithering varies quantized ink without changing glyphs or opacity', () => {
+  const source = pixels(12, 12, () => gray(118));
+  const settings = { mode: 'density', color: 'palette', palette: ['#000', '#fff'], dither: 'floyd', intensity: 100 };
+  const base = conversion(source, 12, 12, settings);
+  for (const colorDither of ['bayer', 'random', 'floyd', 'atkinson']) {
+    const art = conversion(source, 12, 12, { ...settings, colorDither, colorDitherStrength: 100 });
+    assert.deepEqual(art.cells, base.cells);
+    assert.deepEqual(art.opacity, base.opacity);
+    assert.notDeepEqual(art.foreground, base.foreground);
+    assert.deepEqual([...new Set(art.foreground.filter((_, i) => i % 4 === 0))].sort((a, b) => a - b), [0, 255]);
+    const noGlyphDiffusion = conversion(source, 12, 12, { ...settings, dither: 'none', colorDither, colorDitherStrength: 100 });
+    assert.deepEqual(art.foreground, noGlyphDiffusion.foreground);
+  }
+  const zero = conversion(source, 12, 12, { ...settings, colorDither: 'floyd', colorDitherStrength: 0 });
+  assert.deepEqual(zero.foreground, base.foreground);
+});
+
+test('ordered colour dithering mixes inks with different hues and similar brightness', () => {
+  const palette = [[200, 0, 0], [0, 59, 0]];
+  const samples = Float32Array.from(Array.from({ length: 16 }, () => [100, 29.5, 0, 255]).flat());
+  const inks = ditherInks(samples, 4, 4, palette, 'bayer', 1, 42);
+  const reds = inks.filter((_, i) => i % 4 === 0);
+  assert.equal(reds.filter((r) => r === 200).length, 8);
+  assert.equal(reds.filter((r) => r === 0).length, 8);
+});
+
+test('colour diffusion skips transparent samples and keeps both half-block placements aligned', () => {
+  const palette = [[0, 0, 0], [255, 255, 255]];
+  const samples = Float32Array.from([...gray(120), ...gray(255, 0), ...gray(120)]);
+  const inks = ditherInks(samples, 3, 1, palette, 'floyd', 1, 42);
+  assert.deepEqual([...inks], [...gray(0), ...gray(0, 0), ...gray(0)]);
+  const source = pixels(2, 1, (x, y) => (x < PATCH_W ? y >= 4 : y < 4) ? gray(121, 128) : gray(250, 0));
+  const settings = { mode: 'half', color: 'gray4', colorDither: 'bayer', colorDitherStrength: 100 };
+  const art = conversion(source, 2, 1, settings);
+  assert.equal(artworkText(art), '▄▀');
+  assert.deepEqual([art.foreground[3], art.foreground[7]], [128, 128]);
+  assert.deepEqual([...art.background], Array(8).fill(0));
+  assert.ok([85, 170].includes(art.foreground[0]));
+});
+
+test('colour noise has its own seed and is ignored for continuous inks', () => {
+  const source = pixels(12, 12, () => gray(110));
+  const opts = { mode: 'tonal', color: 'palette', palette: ['#000', '#fff'], colorDither: 'random' };
+  const first = conversion(source, 12, 12, { ...opts, seed: 11, colorDitherSeed: 91 });
+  const same = conversion(source, 12, 12, { ...opts, seed: 33, colorDitherSeed: 91 });
+  const different = conversion(source, 12, 12, { ...opts, seed: 11, colorDitherSeed: 92 });
+  assert.deepEqual(first.foreground, same.foreground);
+  assert.notDeepEqual(first.foreground, different.foreground);
+  const continuous = conversion(source, 12, 12, { ...opts, color: 'source' });
+  assert.deepEqual(continuous.foreground, conversion(source, 12, 12, { ...opts, color: 'source', colorDither: 'none' }).foreground);
 });

@@ -1113,7 +1113,7 @@ app.addEventListener('input', (event) => {
   }
   const key = node.dataset.setting;
   const pair = node.closest('.range');
-  if (!key || (!pair && !['range', 'color'].includes(node.type))) return;
+  if (!key || (!pair && !['range', 'color'].includes(node.type) && key !== 'colorDitherSeed')) return;
   const value = inputValue(node);
   if (node.type === 'number' && !Number.isFinite(value)) return;
   if (streamingControl !== node) {
@@ -1150,7 +1150,7 @@ app.addEventListener('change', async (event) => {
       const patch = key === 'library' && RAMPS[value] ? { library: value, ramp: RAMPS[value] }
         : key === 'ramp' ? { ramp: value, library: 'Custom' }
           : { [key]: ['weight', 'rotation'].includes(key) ? Number(value) : value };
-      const rebuild = ['library', 'mode', 'lockAspect', 'hardThreshold', 'color', 'maskMode'].includes(key);
+      const rebuild = ['library', 'mode', 'lockAspect', 'hardThreshold', 'color', 'colorDither', 'maskMode'].includes(key);
       changeSettings(patch, { history: !isStreaming, rebuild });
       if (key === 'ramp') controls.querySelector('[data-setting="library"]').value = 'Custom';
       const paired = node.closest('.range');

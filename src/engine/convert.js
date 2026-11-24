@@ -2,11 +2,10 @@ import { PATCH_W, PATCH_H, PATCH_SIZE, orientation } from './glyphs.js';
 import { ANSI16, braille, clamp, hexRgb, luminance, nearestPalette, randomAt } from './math.js';
 import { cleanGlyphs, normalizeSettings } from './settings.js';
 import { adjustImage } from './adjust.js';
+import { bayerThreshold, diffusionKernel, ditherInks } from './dithering.js';
 
-const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-const FLOYD = [[1, 0, 7 / 16], [-1, 1, 3 / 16], [0, 1, 5 / 16], [1, 1, 1 / 16]];
-const ATKINSON = [[1, 0, .125], [2, 0, .125], [-1, 1, .125], [0, 1, .125], [1, 1, .125], [0, 2, .125]];
 const GLYPH_SHIFTS = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+const GRAY4 = [0, 85, 170, 255].map((value) => [value, value, value]);
 
 function gradientMap(values, width, height, operator) {
   const gx = new Float32Array(values.length);
@@ -113,6 +112,40 @@ function putColor(buffer, index, r, g, b, alpha, mode, duo, palette) {
   buffer.set([r, g, b, alpha], index * 4);
 }
 
+function storeInkSample(samples, index, red, green, blue, alpha, size, gray) {
+  if (!alpha) return;
+  let r = red / alpha, g = green / alpha, b = blue / alpha;
+  if (gray) r = g = b = luminance(r, g, b);
+  const p = index * 4;
+  samples[p] = r;
+  samples[p + 1] = g;
+  samples[p + 2] = b;
+  samples[p + 3] = alpha / size;
+}
+
+function applyInkDither(samples, foreground, background, cols, rows, inkPalette, settings) {
+  const output = ditherInks(samples, cols, background ? rows * 2 : rows, inkPalette,
+    settings.colorDither, settings.colorDitherStrength / 100, settings.colorDitherSeed);
+  if (!background) {
+    foreground.set(output);
+    for (let p = 3; p < output.length; p += 4) {
+      if (samples[p]) foreground[p] = 255;
+    }
+    return;
+  }
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const p = (y * cols + x) * 4;
+      const top = (y * 2 * cols + x) * 4;
+      const bottom = top + cols * 4;
+      const topVisible = samples[top + 3], bottomVisible = samples[bottom + 3];
+      if (topVisible) foreground.set(output.subarray(top, top + 4), p);
+      if (!bottomVisible) continue;
+      (topVisible ? background : foreground).set(output.subarray(bottom, bottom + 4), p);
+    }
+  }
+}
+
 export function convert(pixels, cols, rows, atlas, input = {}, options = {}) {
   if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1 || cols * rows > 115200
     || pixels.length !== cols * rows * PATCH_SIZE * 4) throw new Error('Invalid conversion sampling grid.');
@@ -122,7 +155,7 @@ export function convert(pixels, cols, rows, atlas, input = {}, options = {}) {
   const width = cols * PATCH_W;
   const { light, colors, histogram } = adjustImage(pixels, width, rows * PATCH_H, settings, options.paintedMask);
   const duo = settings.color === 'duotone' ? [hexRgb(settings.lowInk), hexRgb(settings.highInk)] : null;
-  const palette = settings.color === 'palette' ? settings.palette.map(hexRgb) : settings.color === 'ansi16' ? ANSI16 : null;
+  const palette = settings.color === 'palette' ? [...new Set(settings.palette)].map(hexRgb) : settings.color === 'ansi16' ? ANSI16 : null;
   const gradients = ['edges', 'structure', 'hybrid'].includes(settings.mode)
     ? gradientMap(light, width, rows * PATCH_H, settings.edgeOperator) : null;
   const entries = atlas.entries.map((item, id) => ({ ...item, id }));
@@ -142,9 +175,13 @@ export function convert(pixels, cols, rows, atlas, input = {}, options = {}) {
   const cells = new Uint16Array(count);
   const foreground = new Uint8ClampedArray(count * 4);
   const background = settings.mode === 'half' && settings.color !== 'mono' ? new Uint8ClampedArray(count * 4) : null;
+  const grayInk = settings.color === 'gray4';
+  const inkPalette = grayInk ? GRAY4 : palette;
+  const inkSamples = inkPalette?.length > 1 && settings.colorDither !== 'none' && settings.colorDitherStrength > 0
+    ? new Float32Array(count * (background ? 8 : 4)) : null;
   const opacity = new Uint8ClampedArray(count);
   const influence = new Uint8Array(count);
-  const diffusion = settings.dither === 'floyd' ? FLOYD : settings.dither === 'atkinson' ? ATKINSON : null;
+  const diffusion = diffusionKernel(settings.dither);
   const error = diffusion ? new Float32Array(count) : null;
   const fixed = cleanGlyphs(settings.text, 8192);
   const patch = new Float32Array(PATCH_SIZE);
@@ -195,7 +232,7 @@ export function convert(pixels, cols, rows, atlas, input = {}, options = {}) {
       const detail = index === options.inspect ? [] : null;
       let tone = sample(patch, settings.sampling, average, low, high);
       if (settings.mapping === 'gamma') tone = Math.sqrt(tone);
-      if (settings.dither === 'bayer') tone += ((BAYER[(y % 4) * 4 + x % 4] + .5) / 16 - .5) * strength * .38;
+      if (settings.dither === 'bayer') tone += (bayerThreshold(x, y) - .5) * strength * .38;
       if (settings.dither === 'random') tone += (randomAt(index, settings.seed) - .5) * strength * .38;
       if (error) tone += error[index];
       tone = clamp(tone);
@@ -255,7 +292,15 @@ export function convert(pixels, cols, rows, atlas, input = {}, options = {}) {
         actual = 0;
       }
       cells[index] = chosen;
-      if (settings.color !== 'mono') {
+      if (inkSamples) {
+        if (background) {
+          const top = y * 2 * cols + x;
+          storeInkSample(inkSamples, top, r, g, b, a, 16, grayInk);
+          storeInkSample(inkSamples, top + cols, rr, gg, bb, aa, 16, grayInk);
+        } else {
+          storeInkSample(inkSamples, index, r + rr, g + gg, b + bb, a + aa, PATCH_SIZE, grayInk);
+        }
+      } else if (settings.color !== 'mono') {
         if (background) {
           if (a && aa) {
             putColor(foreground, index, r / a, g / a, b / a, a / 16, settings.color, duo, palette);
@@ -282,6 +327,7 @@ export function convert(pixels, cols, rows, atlas, input = {}, options = {}) {
     }
     if (y % 8 === 0) options.onProgress?.(Math.round(100 * y / rows));
   }
+  if (inkSamples) applyInkDither(inkSamples, foreground, background, cols, rows, inkPalette, settings);
   const usage = new Uint32Array(glyphs.length);
   for (const id of cells) usage[id]++;
   return {
