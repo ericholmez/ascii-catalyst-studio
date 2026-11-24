@@ -1376,5 +1376,5 @@ async function initialize() {
 initialize().catch(() => {}).finally(() => { initialized = true; });
 
 if ('serviceWorker' in navigator && !['localhost', '127.0.0.1'].includes(location.hostname)) {
-  navigator.serviceWorker.register(new URL('../offline.js', import.meta.url)).catch(() => {});
+  navigator.serviceWorker.register(new URL('./offline.js', document.baseURI)).catch(() => {});
 }

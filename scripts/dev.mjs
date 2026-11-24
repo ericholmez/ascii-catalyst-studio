@@ -11,7 +11,7 @@ createServer(async (req, res) => {
     let relative = decodeURIComponent(url.pathname).replace(/^\/+/, '');
     relative = relative.replace(/^tools\/ascii-catalyst(?:\/|$)/, '');
     if (!relative) relative = 'index.html';
-    if (!/^(index\.html|offline\.js|src\/)/.test(relative)) throw new Error('Unknown path');
+    if (!/^(index\.html|offline\.js|src\/|assets\/[a-f0-9]{16}\/)/.test(relative)) throw new Error('Unknown path');
     const file = resolve(root, relative);
     if (!file.startsWith(root + sep)) throw new Error('Invalid path');
     const contentType = mime[file.split('.').pop()];
