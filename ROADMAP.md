@@ -1,12 +1,12 @@
 # Roadmap
 
-## v0.3
+## v0.4
 
-Source preparation now includes a non-destructive crop, aligned before-and-after comparison, a five-point tone curve, luminance masks, and a colour key with source sampling. The next work on image preparation is perspective correction and additional filters.
+Source preparation includes four-corner perspective correction, crop and aligned comparison, a five-point tone curve, median cleanup, pixelation, and luminance and colour masks. Painted masks are the next image-preparation milestone.
 
 ## Conversion and diagnosis
 
-- Add perspective correction, more filters, and painted masks.
+- Add painted masks with brush and eraser controls.
 - Expand tone mapping, palette extraction, custom palettes, and independent colour dithering.
 - Add contour continuity, multi-cell optimization, adaptive Braille, quarter blocks and connected box drawing.
 - Add glyph priorities, editable density charts and more detailed diagnostics.

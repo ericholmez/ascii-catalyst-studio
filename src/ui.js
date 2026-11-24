@@ -51,6 +51,52 @@ function framingControls(state) {
     + actions(button('Reset crop', 'reset-crop')));
 }
 
+function perspectiveControls(state) {
+  return details('Perspective', actions(button('Choose four corners', 'choose-perspective',
+    ' aria-pressed="' + (state.sourceTool === 'perspective') + '"'),
+    button('Reset perspective', 'reset-perspective', state.settings.perspective ? '' : ' disabled'))
+    + hint('Select top-left, top-right, bottom-right and bottom-left. Use the pointer or arrow keys and Enter.'));
+}
+
+export function paintPerspectiveGuide(canvas, points, cursor) {
+  const width = Math.max(1, canvas.clientWidth), height = Math.max(1, canvas.clientHeight);
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, width, height);
+  const coordinates = ({ x, y }) => [Math.max(8, Math.min(width - 8, x * width)),
+    Math.max(8, Math.min(height - 8, y * height))];
+  if (points.length) {
+    const path = new Path2D();
+    path.moveTo(...coordinates(points[0]));
+    for (const point of [...points.slice(1), cursor]) path.lineTo(...coordinates(point));
+    if (points.length === 3) path.closePath();
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = 3;
+    ctx.stroke(path);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
+    ctx.stroke(path);
+  }
+  ctx.font = '11px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  points.forEach((point, i) => {
+    const [x, y] = coordinates(point);
+    ctx.fillStyle = '#111';
+    ctx.fillRect(x - 7, y - 7, 14, 14);
+    ctx.strokeStyle = '#fff';
+    ctx.strokeRect(x - 7, y - 7, 14, 14);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(String(i + 1), x, y);
+  });
+  const [x, y] = coordinates(cursor);
+  ctx.strokeStyle = '#fff';
+  ctx.strokeRect(x - 5, y - 5, 10, 10);
+}
+
 function curveControls(settings) {
   return details('Tone curve', '<canvas class="curve-chart" width="254" height="112" role="img" aria-label="Tone curve"></canvas>'
     + '<div class="curve-labels"><span>Dark input</span><span>Light input</span></div>'
@@ -108,7 +154,7 @@ function maskControls(state) {
 
 function createControls(state) {
   const s = state.settings;
-  return sourceControls(state) + framingControls(state)
+  return sourceControls(state) + framingControls(state) + perspectiveControls(state)
     + section('Conversion', select('mode', 'Method', s.mode, pairs(MODES))
       + (['braille', 'half'].includes(s.mode) ? range('threshold', 'Threshold', s.threshold, 0, 100) : '')
       + (s.mode === 'fixed' ? textarea('text', 'Source text', s.text) : select('library', 'Character set', s.library, [
@@ -132,7 +178,9 @@ function createControls(state) {
       + range('black', 'Black point', s.black, 0, 99) + range('white', 'White point', s.white, 1, 100)
       + check('invert', 'Invert source', s.invert))
     + curveControls(s) + maskControls(state)
-    + details('Texture', range('soften', 'Soften', s.soften, 0, 100)
+    + details('Texture', range('denoise', 'Median cleanup', s.denoise, 0, 100)
+      + range('pixelSize', 'Pixel block size', s.pixelSize, 1, 24)
+      + range('soften', 'Soften', s.soften, 0, 100)
       + range('detail', 'Detail boost', s.detail, 0, 100)
       + range('grain', 'Grain', s.grain, 0, 100)
       + range('posterize', 'Posterize (0 = off)', s.posterize, 0, 16)

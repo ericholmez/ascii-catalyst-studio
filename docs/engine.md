@@ -22,11 +22,13 @@ The engine has no dependency on the editor. In a browser, import the JavaScript 
 
 ## Grid and pipeline
 
-Image decoding precedes source cropping, flips, rotation and rescaling. Crop coordinates are percentages of the original, upright input. Compare uses the same source rectangle and transforms as conversion. The editor caches samples by geometry and raster measurements by font metrics and ramp. Foreground, background and viewport changes redraw independently of conversion.
+Image decoding precedes optional perspective correction, cropping, flips, rotation and rescaling. The four source corners define a projective mapping from the corrected rectangle to the original image. The bounding size follows the mean length of opposing edges and bilinear resampling is alpha-aware. Correction is cached and capped at 1600 pixels on the longest edge, or 768 in Draft. Crop percentages apply to the upright, corrected source. Compare uses the same geometry as conversion. The editor caches samples by geometry and raster measurements by font metrics and ramp. Foreground, background and viewport changes redraw independently of conversion.
 
 Preprocessing adjusts colour balance and saturation, then applies exposure, brightness, contrast around a pivot, levels and gamma. Shadows and highlights use squared weights toward their respective ends of the range. Midtones use a bell-shaped weight centred at 50%. Soften and Detail Boost use an alpha-weighted 7×7 luminance average, computed in linear time with two box passes. Seeded grain, posterization and black-and-white thresholding are applied before measuring luminance and ink polarity. Transparent samples contribute no ink. The adjusted image preview shows this processing before glyph and ink selection.
 
 The tone curve is a piecewise-linear mapping with knots at 0%, 25%, 50%, 75% and 100% of display luminance. A 256-entry lookup table applies the same luminance offset to each RGB channel before neighbourhood filters and quantization. Masks multiply the source alpha before glyph selection. Luminance masks use adjusted luminance before hard thresholding. The colour key uses normalized RGB distance from the ungraded source. Feathering uses a smooth transition and preserves partial source opacity.
+
+Median Cleanup mixes in the 3×3 luminance median of visible neighbours. Pixel Block Size averages RGB in alpha-weighted blocks with sides measured in conversion samples. Both filters preserve per-pixel alpha and run before the soften and detail passes.
 
 Duotone interpolates two user-chosen ink colours using each cell’s adjusted luminance. Half blocks use independent colours for their upper and lower samples.
 

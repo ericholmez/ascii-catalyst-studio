@@ -20,9 +20,9 @@ Deploy the contents of `dist/` to any static server. Use a trailing slash for su
 
 ## Workspaces
 
-| Workspace | Available in v0.3 |
+| Workspace | Available in v0.4 |
 | --- | --- |
-| Create | Eight conversion methods, 18 built-in styles, local presets, seeded variations, non-destructive crop, tone curve, luminance and colour masks, histogram, and cell inspector. |
+| Create | Eight conversion methods, 18 built-in styles, local presets, seeded variations, crop, perspective correction, texture filters, tone curve, luminance and colour masks, histogram, and cell inspector. |
 | Character Lab | Editable ramps, fonts, glyph coverage, bounding dimensions, axis bias, artwork usage, sorting, and text export. |
 | Compositor | Glyph brush, eraser, and typography layers with order, position, rotation, opacity and blending. |
 | Text Lab | Repeated text sequences with image-driven glyph opacity. |
@@ -33,7 +33,9 @@ Deploy the contents of `dist/` to any static server. Use a trailing slash for su
 
 Open **Tonal range**, **Texture**, or **Colour and dithering** for fine adjustments. **Preview adjustments** shows the processed image that feeds the character conversion. Use **Vary style** to try a seeded change to tone, grain and dithering, or **Save preset** to reuse your settings on another image. Press **F** for presentation mode, **Esc** to return, and **Ctrl/Cmd+Z** or **Ctrl/Cmd+Shift+Z** for undo and redo.
 
-Open **Crop and orientation** to draw a crop on the original or enter exact percentages. **Compare** aligns the cropped, rotated source with the artwork. **Tone curve** maps five input levels to adjustable outputs. In **Masks**, keep a luminance range or sample a key colour directly from the original, then adjust feathering. Enable **Transparent background** for alpha-capable exports.
+Open **Perspective** to mark four corners on the original image. Select top-left, top-right, bottom-right, and bottom-left in order. The built-in **Perspective Chart** has four markers to try. Use **Crop and orientation** to frame the corrected source, then **Compare** to see it alongside the artwork.
+
+In **Texture**, **Median cleanup** smooths isolated luminance speckles and **Pixel block size** averages colours across blocks. **Tone curve** maps five input levels to adjustable outputs. In **Masks**, keep a luminance range or sample a key colour directly from the original, then adjust feathering. Enable **Transparent background** for alpha-capable exports.
 
 ## Compatibility and storage
 

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { convert } from '../src/engine/convert.js';
 import { adjustImage } from '../src/engine/adjust.js';
+import { perspectiveMatrix, perspectiveSize, projectPoint, validPerspective, warpPerspective } from '../src/engine/perspective.js';
 import { glyphOrientation, PATCH_W, PATCH_H } from '../src/engine/glyphs.js';
 import { braille, cropRect, gridSize, linear, luminance, nearestPalette, randomAt } from '../src/engine/math.js';
 import { artworkText, encodeCp437, escapeMarkup, exportArtwork } from '../src/engine/export.js';
@@ -250,4 +251,44 @@ test('a colour key measures ungraded RGB and removes exact matches at zero toler
   const feathered = adjusted(source, 3, 1, { ...key, maskFeather: 5 });
   assert.ok(feathered.colors[7] > 0 && feathered.colors[7] < 255);
   assert.equal(feathered.colors[11], 255);
+});
+
+test('perspective validates clockwise convex corners and maps the four rectangle corners', () => {
+  const points = [.2, .1, .75, .25, .9, .85, .1, .7];
+  assert.ok(validPerspective(points));
+  assert.equal(validPerspective([.2, .1, .9, .85, .75, .25, .1, .7]), false);
+  assert.equal(validPerspective([0, 0, 1, 0, 1, 0, 0, 1]), false);
+  const matrix = perspectiveMatrix(points);
+  [[0, 0], [1, 0], [1, 1], [0, 1]].forEach(([x, y], corner) => {
+    const [u, v] = projectPoint(matrix, x, y);
+    assert.ok(Math.abs(u - points[corner * 2]) < 1e-9);
+    assert.ok(Math.abs(v - points[corner * 2 + 1]) < 1e-9);
+  });
+  assert.equal(normalizeSettings({ perspective: [0, 0, 1, 1, 1, 0, 0, 1] }).perspective, null);
+  assert.deepEqual(normalizeSettings({ perspective: points }).perspective, points);
+});
+
+test('rectification respects sampled alpha and feeds crop proportions into the grid', () => {
+  const identity = [0, 0, 1, 0, 1, 1, 0, 1];
+  const source = Uint8ClampedArray.from([255, 0, 0, 0, 0, 0, 255, 255]);
+  assert.deepEqual([...warpPerspective(source, 2, 1, 1, 1, identity)], [0, 0, 255, 128]);
+  assert.deepEqual([...warpPerspective(source, 2, 1, 2, 1, identity)], [0, 0, 0, 0, 0, 0, 255, 255]);
+  const perspective = [.25, .25, .75, .25, .75, .75, .25, .75];
+  assert.deepEqual(perspectiveSize(800, 400, perspective), { width: 400, height: 200 });
+  const settings = normalizeSettings({ columns: 100, perspective, cropWidth: 50 });
+  assert.deepEqual(gridSize(800, 400, 10, 20, settings), { cols: 100, rows: 50 });
+});
+
+test('median cleanup removes an isolated speckle and preserves source alpha', () => {
+  const source = Uint8ClampedArray.from([30, 30, 30, 30, 240, 30, 30, 30, 30]
+    .flatMap((value, i) => gray(value, i === 4 ? 128 : 255)));
+  const result = adjusted(source, 3, 3, { denoise: 100 }).colors;
+  assert.deepEqual([...result.subarray(16, 20)], [30, 30, 30, 128]);
+  assert.equal(source[16], 240);
+});
+
+test('pixelation alpha-weights block colour and keeps partial and transparent pixels', () => {
+  const source = Uint8ClampedArray.from([230, 0, 0, 0, 100, 50, 0, 255, 0, 150, 200, 128]);
+  const result = adjusted(source, 3, 1, { pixelSize: 3 }).colors;
+  assert.deepEqual([...result], [0, 0, 0, 0, 67, 83, 67, 255, 67, 83, 67, 128]);
 });

@@ -1,14 +1,15 @@
 import { convert } from './engine/convert.js';
 import { fontMetrics, glyphAtlas, PATCH_W, PATCH_H } from './engine/glyphs.js';
-import { decodeImage, drawFramedSource, sampleImage, sampleSource, SAMPLES } from './engine/image.js';
+import { correctedSource, decodeImage, drawFramedSource, sampleImage, sampleSource, SAMPLES } from './engine/image.js';
 import { clamp, cropRect, gridSize, rgbHex } from './engine/math.js';
+import { validPerspective } from './engine/perspective.js';
 import { renderComposition } from './engine/render.js';
 import { CROP_KEYS, CURVE_KEYS, DEFAULTS, MASK_KEYS, MODES, normalizeSettings, PRESETS, RAMPS,
   TONE_KEYS, TEXTURE_KEYS, cleanGlyphs, varySettings } from './engine/settings.js';
 import { artworkText, download, escapeMarkup, exportArtwork } from './engine/export.js';
 import { normalizeLayers, presetStorage, projectSource, serializeProject, snapshotProject, storage, validateProject } from './project.js';
 import { MediaSession } from './media.js';
-import { button, controlsMarkup, dialogMarkup, inspectorMarkup, outputControls, paintCurve, paintInspector,
+import { button, controlsMarkup, dialogMarkup, inspectorMarkup, outputControls, paintCurve, paintInspector, paintPerspectiveGuide,
   presetNameMarkup, projectNameMarkup, quality, samplesMarkup, WORKSPACES } from './ui.js';
 
 const $ = (selector) => document.querySelector(selector);
@@ -18,6 +19,8 @@ const viewport = $('#viewport');
 const board = $('#artboard');
 const artCanvas = $('#art-canvas');
 const original = $('#source-canvas');
+const cropSource = $('#crop-source-canvas');
+const perspectiveGuide = $('#perspective-guide');
 const comparison = $('#compare-canvas');
 const adjusted = $('#adjusted-canvas');
 const controls = $('#controls');
@@ -29,6 +32,7 @@ const state = {
   metrics: null, atlas: null, workspace: 'create', view: 'art', advanced: false, activePreset: -1,
   presets: [], presetGroup: 'Featured',
   sourceTool: null, toolView: 'art', draftCrop: null,
+  draftCorners: [], cornerCursor: { x: .15, y: .15 },
   scale: 1, panX: 0, panY: 0, grid: false, map: false, selectedGlyph: '',
   inspectIndex: null, layers: [], selectedLayer: -1, edits: {}, editGrid: '', archive: [],
   painting: false, erasing: false, brush: '@',
@@ -38,11 +42,13 @@ const undoStack = [];
 const redoStack = [];
 let worker, workerUnavailable = false, pending = false, timer, job = 0, toastTimer, autosaveTimer;
 let sampled, gesture, dialogType, sourceRequest = 0, hasRecovery = false;
-let comparedSource, comparedFrame;
+let comparedSource, comparedFrame, cropPreviewSource;
 let initialized = false;
 
-const frameKeys = [...CROP_KEYS, 'rotation', 'flipX', 'flipY'];
-const frameKey = (settings) => frameKeys.map((key) => settings[key]).join(',');
+const frameKeys = [...CROP_KEYS, 'rotation', 'flipX', 'flipY', 'perspective'];
+const frameKey = (settings) => settings.quality + ':' + frameKeys.map((key) => settings[key]).join(',');
+const cornerNames = ['top-left', 'top-right', 'bottom-right', 'bottom-left'];
+const cornerStarts = [{ x: .15, y: .15 }, { x: .85, y: .15 }, { x: .85, y: .85 }, { x: .15, y: .85 }];
 
 function toast(message) {
   const node = $('#toast');
@@ -314,16 +320,27 @@ function drawOriginal() {
 
 function drawComparison() {
   const source = state.source.canvas;
-  const frame = frameKey(state.settings);
+  const settings = isMedia() ? { ...state.settings, quality: 'draft' } : state.settings;
+  const frame = frameKey(settings);
   if (comparedSource === source && comparedFrame === frame) return;
-  const { width, height } = cropRect(source.width, source.height, state.settings);
-  const rotated = state.settings.rotation % 180 !== 0;
+  const corrected = correctedSource(source, settings);
+  const { width, height } = cropRect(corrected.width, corrected.height, settings);
+  const rotated = settings.rotation % 180 !== 0;
   const scale = Math.min(1, 1450 / Math.max(width, height));
   comparison.width = Math.max(1, Math.round((rotated ? height : width) * scale));
   comparison.height = Math.max(1, Math.round((rotated ? width : height) * scale));
-  drawFramedSource(comparison.getContext('2d'), source, state.settings);
+  drawFramedSource(comparison.getContext('2d'), source, settings);
   comparedSource = source;
   comparedFrame = frame;
+}
+
+function drawCropSource() {
+  const source = correctedSource(state.source.canvas, state.settings);
+  if (cropPreviewSource === source) return;
+  cropSource.width = source.width;
+  cropSource.height = source.height;
+  cropSource.getContext('2d').drawImage(source, 0, 0);
+  cropPreviewSource = source;
 }
 
 function showSourceTool() {
@@ -333,10 +350,16 @@ function showSourceTool() {
   viewport.classList.toggle('source-editing', Boolean(tool));
   $('[data-action="draw-crop"]')?.setAttribute('aria-pressed', tool === 'crop');
   $('[data-action="pick-key"]')?.setAttribute('aria-pressed', tool === 'key');
+  $('[data-action="choose-perspective"]')?.setAttribute('aria-pressed', tool === 'perspective');
   guide.hidden = !tool;
   outline.hidden = tool !== 'crop';
+  perspectiveGuide.hidden = tool !== 'perspective';
   if (!tool) return;
-  guide.querySelector('span').textContent = tool === 'crop' ? 'Drag to mark the crop' : 'Select a colour in the original image';
+  const label = tool === 'crop' ? 'Drag to mark the crop' : tool === 'key' ? 'Select a colour in the original image'
+    : 'Select ' + cornerNames[state.draftCorners.length] + ' (' + (state.draftCorners.length + 1) + '/4)';
+  const message = guide.querySelector('span');
+  if (message.textContent !== label) message.textContent = label;
+  if (tool === 'perspective') paintPerspectiveGuide(perspectiveGuide, state.draftCorners, state.cornerCursor);
   if (tool === 'crop') {
     const { cropX, cropY, cropWidth, cropHeight } = state.draftCrop ?? state.settings;
     Object.assign(outline.style, { left: cropX + '%', top: cropY + '%', width: cropWidth + '%', height: cropHeight + '%' });
@@ -348,11 +371,13 @@ function refreshView() {
   const showAdjusted = state.view === 'adjusted' && Boolean(state.art?.processed);
   const sourceOnly = state.view === 'source' || !hasArt || (state.view === 'adjusted' && !showAdjusted);
   const split = state.view === 'split' && hasArt;
+  const rectifiedCrop = Boolean(state.source && state.settings.perspective && state.sourceTool === 'crop');
   const visible = state.source && (hasArt || sourceOnly);
   board.hidden = !visible;
   $('.empty-art').hidden = Boolean(state.source);
   artCanvas.hidden = sourceOnly || showAdjusted;
-  original.hidden = !sourceOnly;
+  original.hidden = !sourceOnly || rectifiedCrop;
+  cropSource.hidden = !rectifiedCrop;
   comparison.hidden = !split;
   adjusted.hidden = !showAdjusted;
   $('.split-line').hidden = !split;
@@ -360,26 +385,28 @@ function refreshView() {
   board.classList.toggle('transparent', state.settings.transparent || (showAdjusted && state.settings.maskMode !== 'off'));
   const percent = Number($('#split').value);
   if (split) drawComparison();
+  if (rectifiedCrop) drawCropSource();
   comparison.style.clipPath = split ? 'inset(0 ' + (100 - percent) + '% 0 0)' : '';
   $('.split-line').style.left = percent + '%';
-  showSourceTool();
   $('#stage-label').textContent = showAdjusted ? 'ADJUSTED / PREVIEW'
     : sourceOnly ? 'SOURCE / PREVIEW' : split ? 'SOURCE / ARTWORK' : 'ASCII / PREVIEW';
   $('[data-action="preview-adjustments"]')?.setAttribute('aria-pressed', state.view === 'adjusted');
   for (const button of $$('[data-view]')) button.setAttribute('aria-pressed', button.dataset.view === state.view);
   if (!visible) {
+    showSourceTool();
     for (const key of ['grid', 'cells', 'glyphs', 'mode']) $('#stat-' + key).textContent = key.toUpperCase() + ' —';
     $('#stat-time').textContent = '—';
     $('#canvas-size').textContent = '—';
     return;
   }
-  const canvas = sourceOnly ? original : artCanvas;
+  const canvas = rectifiedCrop ? cropSource : sourceOnly ? original : artCanvas;
   const fit = Math.min((viewport.clientWidth - 36) / canvas.width, (viewport.clientHeight - 54) / canvas.height);
   const ratio = Math.max(.025, fit * state.scale);
   board.style.width = canvas.width * ratio + 'px';
   board.style.height = canvas.height * ratio + 'px';
   board.style.transform = 'translate(calc(-50% + ' + state.panX + 'px), calc(-50% + ' + state.panY + 'px))';
   $('#zoom').textContent = state.scale === 1 && !state.panX && !state.panY ? 'Fit' : Math.round(ratio * 100) + '%';
+  showSourceTool();
 }
 
 function autosave() {
@@ -525,6 +552,7 @@ async function removePreset() {
 function setView(view) {
   state.sourceTool = null;
   state.draftCrop = null;
+  state.draftCorners = [];
   state.view = view;
   fit();
   if (view === 'adjusted' && !state.art?.processed) schedule();
@@ -536,9 +564,50 @@ function beginSourceTool(tool) {
   if (!state.sourceTool) state.toolView = state.view;
   state.sourceTool = tool;
   state.draftCrop = null;
+  state.draftCorners = [];
+  state.cornerCursor = cornerStarts[0];
   state.view = 'source';
   fit();
   viewport.focus({ preventScroll: true });
+}
+
+function placeCorner(position) {
+  const points = [...state.draftCorners, position];
+  if (points.length < 4) {
+    state.draftCorners = points;
+    state.cornerCursor = cornerStarts[points.length];
+    showSourceTool();
+    return;
+  }
+  const corners = points.flatMap(({ x, y }) => [x, y]);
+  if (!validPerspective(corners)) {
+    state.draftCorners = [];
+    state.cornerCursor = cornerStarts[0];
+    showSourceTool();
+    toast('Choose four corners of a convex shape in clockwise order.');
+    return;
+  }
+  setView(state.toolView);
+  changeSettings({ perspective: corners });
+}
+
+const cornerSteps = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+
+function moveCorner(event) {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    if (!event.repeat) placeCorner(state.cornerCursor);
+    return;
+  }
+  const direction = cornerSteps[event.key];
+  if (!direction) return;
+  event.preventDefault();
+  const step = event.shiftKey ? .05 : .01;
+  state.cornerCursor = {
+    x: clamp(state.cornerCursor.x + direction[0] * step),
+    y: clamp(state.cornerCursor.y + direction[1] * step),
+  };
+  showSourceTool();
 }
 
 function sourcePosition(event, limitToImage = false) {
@@ -666,6 +735,11 @@ const actionHandlers = {
     changeSettings(Object.fromEntries(MASK_KEYS.map((key) => [key, DEFAULTS[key]])));
   },
   'draw-crop': () => beginSourceTool('crop'),
+  'choose-perspective': () => beginSourceTool('perspective'),
+  'reset-perspective': () => {
+    if (state.sourceTool === 'perspective') setView(state.toolView);
+    changeSettings({ perspective: null });
+  },
   'pick-key': () => beginSourceTool('key'),
   'cancel-source-tool': () => setView(state.toolView),
   'preview-adjustments': () => setView(state.view === 'adjusted' ? 'art' : 'adjusted'),
@@ -986,6 +1060,11 @@ viewport.addEventListener('pointerdown', (event) => {
   if (gesture.paint) drawCell(hit(event));
 });
 viewport.addEventListener('pointermove', (event) => {
+  if (state.sourceTool === 'perspective') {
+    state.cornerCursor = sourcePosition(event);
+    showSourceTool();
+    return;
+  }
   const cell = hit(event);
   if (cell) $('#stage-coordinates').textContent = 'X ' + String(cell.x + 1).padStart(4, '0')
     + ' / Y ' + String(cell.y + 1).padStart(4, '0');
@@ -1019,6 +1098,9 @@ function endGesture(event) {
       } else if (completed && state.sourceTool === 'key') {
         const position = sourcePosition(event, true);
         if (position) pickSourceColour(position);
+      } else if (completed && state.sourceTool === 'perspective') {
+        const position = sourcePosition(event, true);
+        if (position) placeCorner(position);
       }
     } catch (error) {
       errorMessage(error);
@@ -1056,6 +1138,10 @@ document.addEventListener('keydown', (event) => {
     return;
   }
   if (event.target.matches('input, textarea, select, [contenteditable]') || dialog.open) return;
+  if (event.target === viewport && state.sourceTool === 'perspective' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    moveCorner(event);
+    return;
+  }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
     event.preventDefault();
     if (event.shiftKey) actionHandlers.redo();

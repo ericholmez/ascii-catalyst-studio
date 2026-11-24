@@ -1,5 +1,6 @@
 import { clamp, hexRgb, luminance, randomAt } from './math.js';
 import { CURVE_KEYS } from './settings.js';
+import { medianCleanup, pixelate } from './filters.js';
 
 const BINS = 256;
 
@@ -124,6 +125,8 @@ export function adjustImage(pixels, width, height, settings) {
     colors[p + 3] = pixels[p + 3];
   }
 
+  if (settings.denoise) medianCleanup(colors, width, height, settings.denoise / 100);
+  if (settings.pixelSize > 1) pixelate(colors, width, height, settings.pixelSize);
   const localAmount = (settings.soften - settings.detail * 1.65) / 100;
   const local = localAmount ? localTone(colors, width, height) : null;
   const grain = settings.grain * .0024;

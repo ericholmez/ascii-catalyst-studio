@@ -1,4 +1,5 @@
 import { randomAt } from './math.js';
+import { validPerspective } from './perspective.js';
 
 export const RAMPS = {
   Classic: ' .:-=+*#%@',
@@ -20,8 +21,10 @@ export const DEFAULTS = Object.freeze({
   contrastPivot: 50, shadows: 0, midtones: 0, highlights: 0, vibrance: 0, temperature: 0, tint: 0,
   curve0: 0, curve25: 25, curve50: 50, curve75: 75, curve100: 100,
   soften: 0, detail: 0, grain: 0, posterize: 0, hardThreshold: false, cutoff: 50,
+  denoise: 0, pixelSize: 1,
   invert: false, flipX: false, flipY: false, rotation: 0, grayscale: 'perceptual',
   cropX: 0, cropY: 0, cropWidth: 100, cropHeight: 100,
+  perspective: null,
   maskMode: 'off', maskThreshold: 50, maskTolerance: 18, maskFeather: 10, maskColor: '#808080', maskInvert: false,
   sampling: 'average', mapping: 'linear', foreground: '#eaeaea', background: '#101010',
   transparent: false, color: 'mono', lowInk: '#3f5d9c', highInk: '#f0e5bf', dither: 'none', intensity: 35, seed: 42,
@@ -81,7 +84,7 @@ export const PRESETS = [
 
 export const TONE_KEYS = ['brightness', 'contrast', 'exposure', 'gamma', 'contrastPivot',
   'shadows', 'midtones', 'highlights', 'black', 'white', 'invert'];
-export const TEXTURE_KEYS = ['soften', 'detail', 'grain', 'posterize', 'hardThreshold', 'cutoff'];
+export const TEXTURE_KEYS = ['denoise', 'pixelSize', 'soften', 'detail', 'grain', 'posterize', 'hardThreshold', 'cutoff'];
 export const CURVE_KEYS = ['curve0', 'curve25', 'curve50', 'curve75', 'curve100'];
 export const CROP_KEYS = ['cropX', 'cropY', 'cropWidth', 'cropHeight'];
 export const MASK_KEYS = ['maskMode', 'maskThreshold', 'maskTolerance', 'maskFeather', 'maskColor', 'maskInvert'];
@@ -127,6 +130,7 @@ const ranges = {
   maskThreshold: [0, 100], maskTolerance: [0, 100], maskFeather: [0, 100],
   vibrance: [-100, 100], temperature: [-100, 100], tint: [-100, 100],
   soften: [0, 100], detail: [0, 100], grain: [0, 100], posterize: [0, 16], cutoff: [0, 100],
+  denoise: [0, 100], pixelSize: [1, 24],
   black: [0, 99], white: [1, 100], saturation: [0, 200], intensity: [0, 100],
   seed: [0, 2147483647], edge: [0, 100], shape: [0, 100], threshold: [0, 100], dropout: [0, 100], scale: [1, 8],
 };
@@ -136,7 +140,9 @@ export function normalizeSettings(input = {}) {
   for (const key of Object.keys(DEFAULTS)) {
     const value = input[key];
     if (value == null) continue;
-    if (choices[key]) {
+    if (key === 'perspective') {
+      if (validPerspective(value)) s.perspective = value.slice();
+    } else if (choices[key]) {
       if (choices[key].includes(value)) s[key] = value;
     } else if (ranges[key]) {
       if (typeof value !== 'number' || !Number.isFinite(value)) continue;

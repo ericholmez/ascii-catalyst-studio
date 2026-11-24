@@ -1,5 +1,6 @@
 import { PATCH_W, PATCH_H } from './glyphs.js';
 import { cropRect, randomAt } from './math.js';
+import { perspectiveLimit, perspectiveMatrix, perspectiveSize, projectPoint, warpPerspective } from './perspective.js';
 
 const svgTags = new Set(('svg g path polygon polyline rect circle ellipse line defs linearGradient radialGradient stop '
   + 'clipPath mask use symbol title desc pattern').split(' '));
@@ -70,7 +71,29 @@ export function sampleSource(canvas, cols, rows, settings) {
   return ctx.getImageData(0, 0, target.width, target.height).data;
 }
 
-export function drawFramedSource(ctx, source, settings) {
+let rectification;
+
+export function correctedSource(source, settings) {
+  if (!settings.perspective) return source;
+  const limit = perspectiveLimit(settings.quality);
+  const key = limit + ':' + settings.perspective.join(',');
+  if (rectification?.source === source && rectification.key === key) return rectification.canvas;
+  const scale = Math.min(1, limit / Math.max(source.width, source.height));
+  const input = makeCanvas(Math.max(1, Math.round(source.width * scale)), Math.max(1, Math.round(source.height * scale)));
+  const inputCtx = input.getContext('2d', { willReadFrequently: true });
+  inputCtx.imageSmoothingQuality = 'high';
+  inputCtx.drawImage(source, 0, 0, input.width, input.height);
+  const { width, height } = perspectiveSize(source.width, source.height, settings.perspective, limit);
+  const warped = warpPerspective(inputCtx.getImageData(0, 0, input.width, input.height).data,
+    input.width, input.height, width, height, settings.perspective);
+  const canvas = makeCanvas(width, height);
+  canvas.getContext('2d').putImageData(new ImageData(warped, width, height), 0, 0);
+  rectification = { source, key, canvas };
+  return canvas;
+}
+
+export function drawFramedSource(ctx, original, settings) {
+  const source = correctedSource(original, settings);
   const target = ctx.canvas;
   const crop = cropRect(source.width, source.height, settings);
   const rotated = settings.rotation === 90 || settings.rotation === 270;
@@ -85,7 +108,7 @@ export function drawFramedSource(ctx, source, settings) {
   ctx.restore();
 }
 
-export const SAMPLES = ['Concrete Study', 'Orbital Field', 'Calibration Chart'];
+export const SAMPLES = ['Concrete Study', 'Orbital Field', 'Calibration Chart', 'Perspective Chart'];
 
 export function sampleImage(name = SAMPLES[0], phase = 0, seed = 14) {
   const canvas = makeCanvas(960, 720);
@@ -163,6 +186,25 @@ export function sampleImage(name = SAMPLES[0], phase = 0, seed = 14) {
       ctx.beginPath();
       ctx.ellipse(0, 0, radius, radius * .65, i * .11 + phase, 0, Math.PI * 2);
       ctx.stroke();
+    }
+  } else if (name === SAMPLES[3]) {
+    const plane = perspectiveMatrix([.25, .16, .76, .27, .88, .86, .12, .77]);
+    const project = (x, y) => {
+      const [u, v] = projectPoint(plane, x, y);
+      return [u * canvas.width, v * canvas.height];
+    };
+    polygon([project(0, 0), project(1, 0), project(1, 1), project(0, 1)], '#bababa', '#ededed');
+    for (let y = 0; y < 12; y++) {
+      for (let x = 0; x < 16; x++) {
+        const tone = (x + y) % 2 ? '#b9b9b9' : '#343434';
+        const u = x / 16, v = y / 12, right = (x + 1) / 16, bottom = (y + 1) / 12;
+        polygon([project(u, v), project(right, v), project(right, bottom), project(u, bottom)], tone, '#828282');
+      }
+    }
+    for (const [x, y] of [[0, 0], [1, 0], [1, 1], [0, 1]]) {
+      const [u, v] = project(x, y);
+      ctx.fillStyle = '#f2f2f2';
+      ctx.fillRect(u - 5, v - 5, 10, 10);
     }
   } else {
     const ramp = ctx.createLinearGradient(85, 0, 875, 0);

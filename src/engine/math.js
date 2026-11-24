@@ -1,3 +1,5 @@
+import { perspectiveLimit, perspectiveSize } from './perspective.js';
+
 export const clamp = (n, min = 0, max = 1) => Math.min(max, Math.max(min, n));
 export const linear = (n) => n <= .04045 ? n / 12.92 : ((n + .055) / 1.055) ** 2.4;
 
@@ -19,7 +21,8 @@ export function gridSize(width, height, cellWidth, cellHeight, settings) {
   const limit = settings.quality === 'draft' ? 84 : 480;
   const cols = Math.min(limit, settings.columns);
   const rotated = settings.rotation === 90 || settings.rotation === 270;
-  const crop = cropRect(width, height, settings);
+  const frame = perspectiveSize(width, height, settings.perspective, perspectiveLimit(settings.quality));
+  const crop = cropRect(frame.width, frame.height, settings);
   const ratio = rotated ? crop.width / crop.height : crop.height / crop.width;
   const rows = Math.round(settings.lockAspect
     ? cols * ratio * cellWidth / cellHeight

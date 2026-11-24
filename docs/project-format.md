@@ -13,3 +13,5 @@ An `.acatalyst` file is UTF-8 JSON. The root `format` is `"ASCII-CATALYST"` and 
 | `source` | A built-in `sample` reference, an object with `name` and an embedded base64 image `data` URL, or `null`. IndexedDB stores a Blob instead of the URL. |
 
 An omitted source leaves the workspace empty with its settings loaded. Browser fonts and media decoders can affect regenerated artwork. Image and character-data exports preserve the rendered artwork or grid directly.
+
+When set, perspective is eight normalized coordinates in top-left, top-right, bottom-right, bottom-left order. Crop coordinates refer to the corrected image. Projects saved before v0.4 default to an uncorrected source with the new filters off.
