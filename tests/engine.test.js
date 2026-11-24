@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { convert } from '../src/engine/convert.js';
 import { adjustImage } from '../src/engine/adjust.js';
 import { glyphOrientation, PATCH_W, PATCH_H } from '../src/engine/glyphs.js';
-import { braille, gridSize, linear, luminance, nearestPalette, randomAt } from '../src/engine/math.js';
+import { braille, cropRect, gridSize, linear, luminance, nearestPalette, randomAt } from '../src/engine/math.js';
 import { artworkText, encodeCp437, escapeMarkup, exportArtwork } from '../src/engine/export.js';
 import { cleanGlyphs, DEFAULTS, normalizeSettings, PRESETS, varySettings } from '../src/engine/settings.js';
 import { normalizeEdits, serializeProject, validateProject } from '../src/project.js';
@@ -215,4 +215,39 @@ test('style variations repeat from the same state, advance the seed and preserve
   const names = PRESETS.map(([name]) => name);
   assert.equal(names.length, 18);
   assert.equal(new Set(names).size, names.length);
+});
+
+test('crops stay inside the original and control both upright and rotated grid proportions', () => {
+  const s = normalizeSettings({ columns: 100, cropX: 75, cropY: 25, cropWidth: 90, cropHeight: 100 });
+  assert.deepEqual(cropRect(800, 400, s), { x: 600, y: 100, width: 200, height: 300 });
+  assert.deepEqual(gridSize(800, 400, 10, 20, s), { cols: 100, rows: 75 });
+  assert.deepEqual(gridSize(800, 400, 10, 20, { ...s, rotation: 90 }), { cols: 100, rows: 33 });
+  assert.deepEqual(cropRect(1, 1, { ...s, cropX: 99, cropY: 99 }), { x: 0, y: 0, width: 1, height: 1 });
+});
+
+test('tone curves interpolate between editable levels with a neutral default', () => {
+  const source = Uint8ClampedArray.from([0, 32, 64, 128, 255].flatMap((n) => gray(n)));
+  assert.deepEqual(adjusted(source, 5, 1).colors, source);
+  const edited = adjusted(source, 5, 1, { curve25: 50 }).colors;
+  assert.deepEqual([edited[0], edited[4], edited[8], edited[12], edited[16]], [0, 64, 128, 128, 255]);
+});
+
+test('luminance masks feather and invert without replacing original alpha', () => {
+  const source = Uint8ClampedArray.from([...gray(10), ...gray(128, 180), ...gray(250)]);
+  const keep = { maskMode: 'highlights', maskThreshold: 50, maskFeather: 20 };
+  const mask = adjusted(source, 3, 1, keep);
+  assert.deepEqual([mask.colors[3], mask.colors[7], mask.colors[11]], [0, 93, 255]);
+  const invert = adjusted(source, 3, 1, { ...keep, maskInvert: true });
+  assert.deepEqual([invert.colors[3], invert.colors[7], invert.colors[11]], [255, 87, 0]);
+  assert.equal(mask.light[0], 0);
+  assert.equal(mask.histogram[10], 0);
+});
+
+test('a colour key measures ungraded RGB and removes exact matches at zero tolerance', () => {
+  const source = Uint8ClampedArray.from([255, 0, 0, 255, 250, 0, 0, 255, 0, 0, 255, 255]);
+  const key = { maskMode: 'colour', maskColor: '#ff0000', maskTolerance: 0, maskFeather: 0, invert: true };
+  assert.deepEqual([3, 7, 11].map((p) => adjusted(source, 3, 1, key).colors[p]), [0, 255, 255]);
+  const feathered = adjusted(source, 3, 1, { ...key, maskFeather: 5 });
+  assert.ok(feathered.colors[7] > 0 && feathered.colors[7] < 255);
+  assert.equal(feathered.colors[11], 255);
 });

@@ -1,6 +1,27 @@
-import { clamp, luminance, randomAt } from './math.js';
+import { clamp, hexRgb, luminance, randomAt } from './math.js';
+import { CURVE_KEYS } from './settings.js';
 
 const BINS = 256;
+
+function curveTable(settings) {
+  const points = CURVE_KEYS.map((key) => settings[key] / 100);
+  if (points.every((v, i) => v === i / 4)) return null;
+  return Float32Array.from({ length: BINS }, (_, i) => {
+    const x = i / 255 * 4;
+    const j = Math.min(Math.floor(x), 3);
+    return (points[j] + (points[j + 1] - points[j]) * (x - j)) * 255 - i;
+  });
+}
+
+function maskAlpha(mode, invert, threshold, feather) {
+  const colour = mode === 'colour';
+  return (value) => {
+    const weight = feather > 0 ? clamp((value - threshold) / feather + (colour ? 0 : .5))
+      : Number(colour ? value > threshold : value >= threshold);
+    const keep = weight ** 2 * (3 - 2 * weight);
+    return (mode === 'shadows') !== invert ? 1 - keep : keep;
+  };
+}
 
 function localTone(colors, width, height) {
   const count = width * height;
@@ -80,6 +101,7 @@ export function adjustImage(pixels, width, height, settings) {
   const temperature = settings.temperature * .0016;
   const tint = settings.tint * .0013;
   const offsets = [temperature + tint / 2, -tint, -temperature + tint / 2];
+  const curve = curveTable(settings);
   for (let p = 0; p < pixels.length; p += 4) {
     if (!pixels[p + 3]) continue;
     const r = pixels[p] / 255, g = pixels[p + 1] / 255, b = pixels[p + 2] / 255;
@@ -94,6 +116,11 @@ export function adjustImage(pixels, width, height, settings) {
       }
       colors[p + channel] = (settings.invert ? 1 - tone : tone) * 255;
     }
+    if (curve) {
+      const level = Math.round(luminance(colors[p], colors[p + 1], colors[p + 2]));
+      const shift = curve[level];
+      for (let channel = 0; channel < 3; channel++) colors[p + channel] += shift;
+    }
     colors[p + 3] = pixels[p + 3];
   }
 
@@ -102,9 +129,12 @@ export function adjustImage(pixels, width, height, settings) {
   const grain = settings.grain * .0024;
   const steps = settings.posterize ? settings.posterize - 1 : 0;
   const cutoff = settings.cutoff / 100;
+  const { maskMode, maskInvert, maskFeather } = settings;
+  const key = maskMode === 'colour' ? hexRgb(settings.maskColor) : null;
+  const mask = maskMode !== 'off' && maskAlpha(maskMode, maskInvert,
+    (key ? settings.maskTolerance : settings.maskThreshold) / 100, maskFeather / 100);
   for (let i = 0, p = 0; i < count; i++, p += 4) {
-    const alpha = colors[p + 3] / 255;
-    if (!alpha) continue;
+    if (!colors[p + 3]) continue;
     const localShift = local ? (local.smoothed[i] - local.tone[i]) * localAmount : 0;
     const delta = localShift + (grain ? (randomAt(i, settings.seed ^ 0x297a) - .5) * grain : 0);
     if (steps || delta) {
@@ -115,11 +145,16 @@ export function adjustImage(pixels, width, height, settings) {
       }
     }
     let tone = luminance(colors[p] / 255, colors[p + 1] / 255, colors[p + 2] / 255, settings.grayscale);
+    if (mask) {
+      const value = key ? Math.hypot(pixels[p] - key[0], pixels[p + 1] - key[1], pixels[p + 2] - key[2]) / (255 * Math.sqrt(3)) : tone;
+      colors[p + 3] *= mask(value);
+      if (!colors[p + 3]) continue;
+    }
     if (settings.hardThreshold) {
       tone = Number(tone >= cutoff);
       colors[p] = colors[p + 1] = colors[p + 2] = tone * 255;
     }
-    light[i] = (settings.polarity === 'dark' ? 1 - tone : tone) * alpha;
+    light[i] = (settings.polarity === 'dark' ? 1 - tone : tone) * colors[p + 3] / 255;
     histogram[Math.round(tone * 255)]++;
   }
 

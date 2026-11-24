@@ -1,5 +1,5 @@
 import { escapeMarkup as esc, FORMATS } from './engine/export.js';
-import { MODES, PRESETS, RAMPS } from './engine/settings.js';
+import { CURVE_KEYS, MODES, PRESETS, RAMPS } from './engine/settings.js';
 import { SAMPLES } from './engine/image.js';
 
 export const WORKSPACES = {
@@ -41,9 +41,74 @@ function sourceControls(state) {
     + esc(state.source?.name || 'Drop, paste or browse') + '</span>' + button('Samples', 'samples', ' class="text-button"') + '</div>', '01');
 }
 
+function framingControls(state) {
+  const s = state.settings;
+  return details('Crop and orientation', actions(button('Draw crop', 'draw-crop', ' aria-pressed="' + (state.sourceTool === 'crop') + '"'))
+    + range('cropX', 'Left (%)', s.cropX, 0, 99) + range('cropY', 'Top (%)', s.cropY, 0, 99)
+    + range('cropWidth', 'Width (%)', s.cropWidth, 1, 100) + range('cropHeight', 'Height (%)', s.cropHeight, 1, 100)
+    + check('flipX', 'Flip horizontally', s.flipX) + check('flipY', 'Flip vertically', s.flipY)
+    + select('rotation', 'Rotation', s.rotation, [0, 90, 180, 270].map((a) => [a, a + '°']))
+    + actions(button('Reset crop', 'reset-crop')));
+}
+
+function curveControls(settings) {
+  return details('Tone curve', '<canvas class="curve-chart" width="254" height="112" role="img" aria-label="Tone curve"></canvas>'
+    + '<div class="curve-labels"><span>Dark input</span><span>Light input</span></div>'
+    + CURVE_KEYS.map((key) => range(key, key.slice(5) + '% input → output', settings[key], 0, 100)).join('')
+    + actions(button('Reset curve', 'reset-curve')));
+}
+
+export function paintCurve(root, settings) {
+  const canvas = root.querySelector('.curve-chart');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const { width, height } = canvas;
+  const pad = 8;
+  const point = (i, v) => [pad + (width - 2 * pad) * i / 4, height - pad - (height - 2 * pad) * v / 100];
+  ctx.clearRect(0, 0, width, height);
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = '#3b3b3b';
+  ctx.beginPath();
+  for (let i = 0; i < 5; i++) {
+    const [x, y] = point(i, i * 25);
+    ctx.moveTo(x, pad);
+    ctx.lineTo(x, height - pad);
+    ctx.moveTo(pad, y);
+    ctx.lineTo(width - pad, y);
+  }
+  ctx.moveTo(...point(0, 0));
+  ctx.lineTo(...point(4, 100));
+  ctx.stroke();
+  const points = CURVE_KEYS.map((key, i) => point(i, settings[key]));
+  ctx.strokeStyle = '#fff';
+  ctx.beginPath();
+  ctx.moveTo(...points[0]);
+  for (const p of points.slice(1)) ctx.lineTo(...p);
+  ctx.stroke();
+  ctx.fillStyle = '#fff';
+  for (const [x, y] of points) ctx.fillRect(x - 2, y - 2, 4, 4);
+  canvas.setAttribute('aria-label', 'Tone curve output values ' + CURVE_KEYS.map((key) => settings[key] + '%').join(', '));
+}
+
+function maskControls(state) {
+  const s = state.settings;
+  const mode = s.maskMode;
+  const target = mode === 'colour'
+    ? input('maskColor', 'Key colour', s.maskColor, 'color')
+      + actions(button('Pick from source', 'pick-key', ' aria-pressed="' + (state.sourceTool === 'key') + '"'))
+      + range('maskTolerance', 'Colour tolerance', s.maskTolerance, 0, 100)
+    : range('maskThreshold', 'Luminance threshold', s.maskThreshold, 0, 100);
+  return details('Masks', select('maskMode', 'Mask type', mode, [
+    ['off', 'Off'], ['highlights', 'Keep highlights'], ['shadows', 'Keep shadows'], ['colour', 'Remove key colour'],
+  ]) + (mode === 'off' ? '' : target + range('maskFeather', 'Feather', s.maskFeather, 0, 100)
+    + check('maskInvert', 'Invert mask', s.maskInvert)
+    + actions(button('Reset mask', 'reset-mask'))
+    + hint('Enable Transparent background under Colour and dithering to export with alpha.')));
+}
+
 function createControls(state) {
   const s = state.settings;
-  return sourceControls(state)
+  return sourceControls(state) + framingControls(state)
     + section('Conversion', select('mode', 'Method', s.mode, pairs(MODES))
       + (['braille', 'half'].includes(s.mode) ? range('threshold', 'Threshold', s.threshold, 0, 100) : '')
       + (s.mode === 'fixed' ? textarea('text', 'Source text', s.text) : select('library', 'Character set', s.library, [
@@ -66,6 +131,7 @@ function createControls(state) {
       + range('gamma', 'Gamma', s.gamma, .2, 4, .05)
       + range('black', 'Black point', s.black, 0, 99) + range('white', 'White point', s.white, 1, 100)
       + check('invert', 'Invert source', s.invert))
+    + curveControls(s) + maskControls(state)
     + details('Texture', range('soften', 'Soften', s.soften, 0, 100)
       + range('detail', 'Detail boost', s.detail, 0, 100)
       + range('grain', 'Grain', s.grain, 0, 100)
@@ -91,9 +157,7 @@ function createControls(state) {
       + select('polarity', 'Ink polarity', s.polarity, [['light', 'Light ink'], ['dark', 'Dark ink']])
       + select('dither', 'Dithering', s.dither, [['none', 'None'], ['bayer', 'Ordered Bayer'], ['random', 'Seeded noise'], ['floyd', 'Floyd–Steinberg'], ['atkinson', 'Atkinson']])
       + range('intensity', 'Dither intensity', s.intensity, 0, 100))
-    + (state.advanced ? details('Transforms', check('flipX', 'Flip horizontally', s.flipX) + check('flipY', 'Flip vertically', s.flipY)
-      + select('rotation', 'Rotation', s.rotation, [0, 90, 180, 270].map((a) => [a, a + '°'])))
-      + details('Sampling and effects', select('grayscale', 'Luminance', s.grayscale,
+    + (state.advanced ? details('Sampling and effects', select('grayscale', 'Luminance', s.grayscale,
         [['perceptual', 'Weighted display RGB'], ['linear', 'Linear-light sRGB'], ['average', 'RGB average']])
         + select('sampling', 'Cell sample', s.sampling, ['average', 'center', 'minimum', 'maximum', 'median', 'gaussian'].map((key) => [key, key]))
         + select('mapping', 'Tonal mapping', s.mapping, [['linear', 'Linear'], ['gamma', 'Gamma lift'], ['equalized', 'Histogram equalization']])

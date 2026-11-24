@@ -1,4 +1,4 @@
-const CACHE = 'ascii-catalyst-v2';
+const CACHE = 'ascii-catalyst-v3';
 const files = ['./', './index.html', './src/styles.css', './src/app.js', './src/ui.js', './src/media.js',
   './src/project.js', './src/worker.js', './src/engine/adjust.js', './src/engine/convert.js', './src/engine/glyphs.js',
   './src/engine/image.js', './src/engine/math.js', './src/engine/render.js', './src/engine/settings.js', './src/engine/export.js',

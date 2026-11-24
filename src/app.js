@@ -1,13 +1,14 @@
 import { convert } from './engine/convert.js';
 import { fontMetrics, glyphAtlas, PATCH_W, PATCH_H } from './engine/glyphs.js';
-import { decodeImage, sampleImage, sampleSource, SAMPLES } from './engine/image.js';
-import { gridSize } from './engine/math.js';
+import { decodeImage, drawFramedSource, sampleImage, sampleSource, SAMPLES } from './engine/image.js';
+import { clamp, cropRect, gridSize, rgbHex } from './engine/math.js';
 import { renderComposition } from './engine/render.js';
-import { DEFAULTS, MODES, normalizeSettings, PRESETS, RAMPS, TONE_KEYS, TEXTURE_KEYS, cleanGlyphs, varySettings } from './engine/settings.js';
+import { CROP_KEYS, CURVE_KEYS, DEFAULTS, MASK_KEYS, MODES, normalizeSettings, PRESETS, RAMPS,
+  TONE_KEYS, TEXTURE_KEYS, cleanGlyphs, varySettings } from './engine/settings.js';
 import { artworkText, download, escapeMarkup, exportArtwork } from './engine/export.js';
 import { normalizeLayers, presetStorage, projectSource, serializeProject, snapshotProject, storage, validateProject } from './project.js';
 import { MediaSession } from './media.js';
-import { button, controlsMarkup, dialogMarkup, inspectorMarkup, outputControls, paintInspector,
+import { button, controlsMarkup, dialogMarkup, inspectorMarkup, outputControls, paintCurve, paintInspector,
   presetNameMarkup, projectNameMarkup, quality, samplesMarkup, WORKSPACES } from './ui.js';
 
 const $ = (selector) => document.querySelector(selector);
@@ -17,6 +18,7 @@ const viewport = $('#viewport');
 const board = $('#artboard');
 const artCanvas = $('#art-canvas');
 const original = $('#source-canvas');
+const comparison = $('#compare-canvas');
 const adjusted = $('#adjusted-canvas');
 const controls = $('#controls');
 const inspector = $('#inspector');
@@ -26,6 +28,7 @@ const state = {
   name: 'Untitled', projectId: null, settings: { ...DEFAULTS }, source: null, art: null,
   metrics: null, atlas: null, workspace: 'create', view: 'art', advanced: false, activePreset: -1,
   presets: [], presetGroup: 'Featured',
+  sourceTool: null, toolView: 'art', draftCrop: null,
   scale: 1, panX: 0, panY: 0, grid: false, map: false, selectedGlyph: '',
   inspectIndex: null, layers: [], selectedLayer: -1, edits: {}, editGrid: '', archive: [],
   painting: false, erasing: false, brush: '@',
@@ -35,7 +38,11 @@ const undoStack = [];
 const redoStack = [];
 let worker, workerUnavailable = false, pending = false, timer, job = 0, toastTimer, autosaveTimer;
 let sampled, gesture, dialogType, sourceRequest = 0, hasRecovery = false;
+let comparedSource, comparedFrame;
 let initialized = false;
+
+const frameKeys = [...CROP_KEYS, 'rotation', 'flipX', 'flipY'];
+const frameKey = (settings) => frameKeys.map((key) => settings[key]).join(',');
 
 function toast(message) {
   const node = $('#toast');
@@ -58,6 +65,7 @@ function showControls() {
   const expanded = [...controls.querySelectorAll('details[open] summary')].map((summary) => summary.textContent);
   const position = controls.scrollTop;
   controls.innerHTML = controlsMarkup(state);
+  paintCurve(controls, state.settings);
   for (const detail of controls.querySelectorAll('details')) {
     if (expanded.includes(detail.querySelector('summary').textContent)) detail.open = true;
   }
@@ -83,6 +91,7 @@ function navigate() {
     schedule();
   }
   if (workspace !== state.workspace) {
+    if (state.sourceTool) setView('art');
     controls.scrollTop = 0;
     inspector.scrollTop = 0;
   }
@@ -148,6 +157,7 @@ function restoreHistory(from, to) {
 
 function setSource(source, { remember = true } = {}) {
   state.media.stop();
+  if (state.sourceTool) setView('art');
   if (remember) recordHistory();
   Object.assign(state, { source, art: null, inspectIndex: null, edits: {}, editGrid: '', scale: 1, panX: 0, panY: 0 });
   sampled = null;
@@ -212,9 +222,9 @@ function renderJob() {
       if (!['half', 'braille', 'fixed'].includes(s.mode)) throw error;
       atlas = glyphAtlas({ ...s, ramp: ' ' }, metrics);
     }
-    if (!(sampled?.source === source && sampled.cols === cols && sampled.rows === rows
-      && sampled.rotation === s.rotation && sampled.flipX === s.flipX && sampled.flipY === s.flipY)) {
-      sampled = { source, cols, rows, rotation: s.rotation, flipX: s.flipX, flipY: s.flipY, pixels: sampleSource(source, cols, rows, s) };
+    const frame = frameKey(s);
+    if (!(sampled?.source === source && sampled.cols === cols && sampled.rows === rows && sampled.frame === frame)) {
+      sampled = { source, cols, rows, frame, pixels: sampleSource(source, cols, rows, s) };
     }
     const pixels = sampled.pixels.slice();
     const preview = state.view === 'adjusted';
@@ -302,6 +312,37 @@ function drawOriginal() {
   original.getContext('2d').drawImage(source, 0, 0, original.width, original.height);
 }
 
+function drawComparison() {
+  const source = state.source.canvas;
+  const frame = frameKey(state.settings);
+  if (comparedSource === source && comparedFrame === frame) return;
+  const { width, height } = cropRect(source.width, source.height, state.settings);
+  const rotated = state.settings.rotation % 180 !== 0;
+  const scale = Math.min(1, 1450 / Math.max(width, height));
+  comparison.width = Math.max(1, Math.round((rotated ? height : width) * scale));
+  comparison.height = Math.max(1, Math.round((rotated ? width : height) * scale));
+  drawFramedSource(comparison.getContext('2d'), source, state.settings);
+  comparedSource = source;
+  comparedFrame = frame;
+}
+
+function showSourceTool() {
+  const tool = state.sourceTool;
+  const guide = $('.source-tool-guide');
+  const outline = $('.crop-outline');
+  viewport.classList.toggle('source-editing', Boolean(tool));
+  $('[data-action="draw-crop"]')?.setAttribute('aria-pressed', tool === 'crop');
+  $('[data-action="pick-key"]')?.setAttribute('aria-pressed', tool === 'key');
+  guide.hidden = !tool;
+  outline.hidden = tool !== 'crop';
+  if (!tool) return;
+  guide.querySelector('span').textContent = tool === 'crop' ? 'Drag to mark the crop' : 'Select a colour in the original image';
+  if (tool === 'crop') {
+    const { cropX, cropY, cropWidth, cropHeight } = state.draftCrop ?? state.settings;
+    Object.assign(outline.style, { left: cropX + '%', top: cropY + '%', width: cropWidth + '%', height: cropHeight + '%' });
+  }
+}
+
 function refreshView() {
   const hasArt = Boolean(state.art);
   const showAdjusted = state.view === 'adjusted' && Boolean(state.art?.processed);
@@ -311,14 +352,17 @@ function refreshView() {
   board.hidden = !visible;
   $('.empty-art').hidden = Boolean(state.source);
   artCanvas.hidden = sourceOnly || showAdjusted;
-  original.hidden = !sourceOnly && !split;
+  original.hidden = !sourceOnly;
+  comparison.hidden = !split;
   adjusted.hidden = !showAdjusted;
   $('.split-line').hidden = !split;
   $('.compare-control').hidden = !split;
-  board.classList.toggle('transparent', state.settings.transparent);
+  board.classList.toggle('transparent', state.settings.transparent || (showAdjusted && state.settings.maskMode !== 'off'));
   const percent = Number($('#split').value);
-  original.style.clipPath = split ? 'inset(0 ' + (100 - percent) + '% 0 0)' : '';
+  if (split) drawComparison();
+  comparison.style.clipPath = split ? 'inset(0 ' + (100 - percent) + '% 0 0)' : '';
   $('.split-line').style.left = percent + '%';
+  showSourceTool();
   $('#stage-label').textContent = showAdjusted ? 'ADJUSTED / PREVIEW'
     : sourceOnly ? 'SOURCE / PREVIEW' : split ? 'SOURCE / ARTWORK' : 'ASCII / PREVIEW';
   $('[data-action="preview-adjustments"]')?.setAttribute('aria-pressed', state.view === 'adjusted');
@@ -373,6 +417,7 @@ async function loadProject(raw, projectId = null) {
   const project = validateProject(raw);
   const source = await projectSource(project.source);
   state.media.stop();
+  if (state.sourceTool) setView('art');
   recordHistory();
   Object.assign(state, project, { source, art: null, activePreset: -1, projectId, inspectIndex: null, selectedLayer: -1, scale: 1, panX: 0, panY: 0 });
   sampled = null;
@@ -412,6 +457,15 @@ function changeSettings(patch, { history = true, rebuild = true, delay = 0 } = {
   state.activePreset = -1;
   state.settings = normalizeSettings({ ...state.settings, ...patch });
   if (rebuild) showControls();
+  if (CURVE_KEYS.some((key) => key in patch)) paintCurve(controls, state.settings);
+  if (CROP_KEYS.some((key) => key in patch)) {
+    for (const key of CROP_KEYS) {
+      for (const input of controls.querySelectorAll('[data-setting="' + key + '"]')) {
+        if (input !== document.activeElement || input.type !== 'number') input.value = state.settings[key];
+      }
+    }
+    showSourceTool();
+  }
   if (Object.keys(patch).every((key) => ['foreground', 'background', 'transparent', 'scale'].includes(key))) {
     paint();
   } else {
@@ -432,7 +486,7 @@ function choosePreset(index) {
 
 function applyPreset(id, config) {
   recordHistory();
-  const framing = ['columns', 'rows', 'lockAspect', 'quality', 'scale', 'rotation', 'flipX', 'flipY'];
+  const framing = ['columns', 'rows', 'lockAspect', 'quality', 'scale', ...frameKeys, ...MASK_KEYS];
   state.settings = normalizeSettings({ ...config, ...Object.fromEntries(framing.map((key) => [key, state.settings[key]])) });
   state.activePreset = id;
   state.inspectIndex = null;
@@ -469,9 +523,50 @@ async function removePreset() {
 }
 
 function setView(view) {
+  state.sourceTool = null;
+  state.draftCrop = null;
   state.view = view;
   fit();
   if (view === 'adjusted' && !state.art?.processed) schedule();
+}
+
+function beginSourceTool(tool) {
+  if (!state.source) throw new Error('Import a source image first.');
+  if (state.sourceTool === tool) return setView(state.toolView);
+  if (!state.sourceTool) state.toolView = state.view;
+  state.sourceTool = tool;
+  state.draftCrop = null;
+  state.view = 'source';
+  fit();
+  viewport.focus({ preventScroll: true });
+}
+
+function sourcePosition(event, limitToImage = false) {
+  const box = board.getBoundingClientRect();
+  const x = (event.clientX - box.left) / box.width;
+  const y = (event.clientY - box.top) / box.height;
+  if (limitToImage && (x < 0 || y < 0 || x >= 1 || y >= 1)) return null;
+  return { x: clamp(x), y: clamp(y) };
+}
+
+function cropFromPoints(a, b) {
+  const cropX = Math.min(99, Math.round(Math.min(a.x, b.x) * 100));
+  const cropY = Math.min(99, Math.round(Math.min(a.y, b.y) * 100));
+  return {
+    cropX, cropY,
+    cropWidth: Math.max(1, Math.round(Math.max(a.x, b.x) * 100) - cropX),
+    cropHeight: Math.max(1, Math.round(Math.max(a.y, b.y) * 100) - cropY),
+  };
+}
+
+function pickSourceColour(position) {
+  const source = state.source.canvas;
+  const x = Math.min(source.width - 1, Math.floor(position.x * source.width));
+  const y = Math.min(source.height - 1, Math.floor(position.y * source.height));
+  const [r, g, b, alpha] = source.getContext('2d').getImageData(x, y, 1, 1).data;
+  if (!alpha) return toast('Choose a visible pixel in the image.');
+  setView(state.toolView);
+  changeSettings({ maskColor: rgbHex(r, g, b) });
 }
 
 function changeLayer(action) {
@@ -564,6 +659,15 @@ const actionHandlers = {
   },
   'reset-tone': () => changeSettings(Object.fromEntries(TONE_KEYS.map((key) => [key, DEFAULTS[key]]))),
   'reset-texture': () => changeSettings(Object.fromEntries(TEXTURE_KEYS.map((key) => [key, DEFAULTS[key]]))),
+  'reset-curve': () => changeSettings(Object.fromEntries(CURVE_KEYS.map((key) => [key, DEFAULTS[key]]))),
+  'reset-crop': () => changeSettings(Object.fromEntries(CROP_KEYS.map((key) => [key, DEFAULTS[key]]))),
+  'reset-mask': () => {
+    if (state.sourceTool === 'key') setView(state.toolView);
+    changeSettings(Object.fromEntries(MASK_KEYS.map((key) => [key, DEFAULTS[key]])));
+  },
+  'draw-crop': () => beginSourceTool('crop'),
+  'pick-key': () => beginSourceTool('key'),
+  'cancel-source-tool': () => setView(state.toolView),
   'preview-adjustments': () => setView(state.view === 'adjusted' ? 'art' : 'adjusted'),
   cancel: () => {
     stopWork();
@@ -712,14 +816,25 @@ app.addEventListener('input', (event) => {
     return;
   }
   const key = node.dataset.setting;
-  if (!key || !['range', 'color'].includes(node.type)) return;
+  const pair = node.closest('.range');
+  if (!key || (!pair && !['range', 'color'].includes(node.type))) return;
+  const value = inputValue(node);
+  if (node.type === 'number' && !Number.isFinite(value)) return;
   if (streamingControl !== node) {
     streamingControl = node;
     recordHistory();
   }
-  const sibling = node.closest('.range')?.querySelector('input[type="number"]');
-  if (sibling) sibling.value = node.value;
-  changeSettings({ [key]: inputValue(node) }, { history: false, rebuild: false, delay: 105 });
+  changeSettings({ [key]: value }, { history: false, rebuild: false, delay: 105 });
+  if (pair) {
+    const sibling = pair.querySelector(node.type === 'range' ? 'input[type="number"]' : 'input[type="range"]');
+    sibling.value = state.settings[key];
+  }
+});
+
+app.addEventListener('focusout', ({ target: node }) => {
+  if (streamingControl !== node) return;
+  streamingControl = null;
+  if (node.type === 'number') node.value = state.settings[node.dataset.setting];
 });
 
 app.addEventListener('change', async (event) => {
@@ -733,12 +848,13 @@ app.addEventListener('change', async (event) => {
   try {
     if (node.dataset.setting) {
       const key = node.dataset.setting;
+      if (key === 'maskMode' && state.sourceTool === 'key') setView(state.toolView);
       const isStreaming = streamingControl === node;
       streamingControl = null;
       const patch = key === 'library' && RAMPS[value] ? { library: value, ramp: RAMPS[value] }
         : key === 'ramp' ? { ramp: value, library: 'Custom' }
           : { [key]: ['weight', 'rotation'].includes(key) ? Number(value) : value };
-      const rebuild = ['library', 'mode', 'lockAspect', 'hardThreshold', 'color'].includes(key);
+      const rebuild = ['library', 'mode', 'lockAspect', 'hardThreshold', 'color', 'maskMode'].includes(key);
       changeSettings(patch, { history: !isStreaming, rebuild });
       if (key === 'ramp') controls.querySelector('[data-setting="library"]').value = 'Custom';
       const paired = node.closest('.range');
@@ -856,6 +972,14 @@ function drawCell(cell) {
 
 viewport.addEventListener('pointerdown', (event) => {
   if (event.button !== 0 || event.target.closest('button, input, label')) return;
+  if (state.sourceTool) {
+    const start = sourcePosition(event, true);
+    if (start) {
+      gesture = { sourceTool: state.sourceTool, start, x: event.clientX, y: event.clientY };
+      viewport.setPointerCapture(event.pointerId);
+    }
+    return;
+  }
   gesture = { x: event.clientX, y: event.clientY, panX: state.panX, panY: state.panY, moved: false,
     paint: state.workspace === 'compositor' && state.painting };
   viewport.setPointerCapture(event.pointerId);
@@ -866,6 +990,13 @@ viewport.addEventListener('pointermove', (event) => {
   if (cell) $('#stage-coordinates').textContent = 'X ' + String(cell.x + 1).padStart(4, '0')
     + ' / Y ' + String(cell.y + 1).padStart(4, '0');
   if (!gesture) return;
+  if (gesture.sourceTool) {
+    if (state.sourceTool === 'crop' && gesture.sourceTool === 'crop') {
+      state.draftCrop = cropFromPoints(gesture.start, sourcePosition(event));
+      showSourceTool();
+    }
+    return;
+  }
   if (gesture.paint) return drawCell(cell);
   const dx = event.clientX - gesture.x, dy = event.clientY - gesture.y;
   if (gesture.moved || Math.hypot(dx, dy) > 4) {
@@ -878,6 +1009,25 @@ viewport.addEventListener('pointermove', (event) => {
 });
 function endGesture(event) {
   if (!gesture) return;
+  if (gesture.sourceTool) {
+    const completed = event.type === 'pointerup' && state.sourceTool === gesture.sourceTool;
+    try {
+      if (completed && state.sourceTool === 'crop' && Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) > 4) {
+        const patch = cropFromPoints(gesture.start, sourcePosition(event));
+        setView(state.toolView);
+        changeSettings(patch);
+      } else if (completed && state.sourceTool === 'key') {
+        const position = sourcePosition(event, true);
+        if (position) pickSourceColour(position);
+      }
+    } catch (error) {
+      errorMessage(error);
+    }
+    state.draftCrop = null;
+    gesture = null;
+    showSourceTool();
+    return;
+  }
   const cell = hit(event);
   if (gesture.paint) {
     if (gesture.changed) {
@@ -901,6 +1051,10 @@ viewport.addEventListener('wheel', (event) => {
   zoom(event.deltaY < 0 ? 1.12 : 1 / 1.12);
 }, { passive: false });
 document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && state.sourceTool && !dialog.open) {
+    setView(state.toolView);
+    return;
+  }
   if (event.target.matches('input, textarea, select, [contenteditable]') || dialog.open) return;
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
     event.preventDefault();

@@ -50,7 +50,9 @@
         <div class="artboard" id="artboard">
           <canvas id="art-canvas" role="img" aria-label="Character artwork preview"></canvas>
           <canvas id="source-canvas" role="img" aria-label="Original source image preview" hidden></canvas>
+          <canvas id="compare-canvas" role="img" aria-label="Framed source image preview" hidden></canvas>
           <canvas id="adjusted-canvas" role="img" aria-label="Adjusted image preview" hidden></canvas>
+          <div class="crop-outline" hidden></div>
           <div class="split-line" hidden></div>
         </div>
         <div class="empty-art" hidden>
@@ -59,6 +61,7 @@
           <button data-action="upload">Choose image</button>
         </div>
         <label class="compare-control" hidden>Compare <input type="range" id="split" min="0" max="100" value="50"></label>
+        <div class="source-tool-guide" hidden><span></span> <button data-action="cancel-source-tool" class="text-button">Cancel</button></div>
         <div class="stage-bottom" aria-hidden="true"><span>+</span><span>+</span></div>
       </div>
       <footer class="artwork-footer">

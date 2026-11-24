@@ -1,5 +1,5 @@
 import { PATCH_W, PATCH_H } from './glyphs.js';
-import { randomAt } from './math.js';
+import { cropRect, randomAt } from './math.js';
 
 const svgTags = new Set(('svg g path polygon polyline rect circle ellipse line defs linearGradient radialGradient stop '
   + 'clipPath mask use symbol title desc pattern').split(' '));
@@ -66,15 +66,23 @@ export async function decodeImage(file) {
 export function sampleSource(canvas, cols, rows, settings) {
   const target = makeCanvas(cols * PATCH_W, rows * PATCH_H);
   const ctx = target.getContext('2d', { willReadFrequently: true });
+  drawFramedSource(ctx, canvas, settings);
+  return ctx.getImageData(0, 0, target.width, target.height).data;
+}
+
+export function drawFramedSource(ctx, source, settings) {
+  const target = ctx.canvas;
+  const crop = cropRect(source.width, source.height, settings);
   const rotated = settings.rotation === 90 || settings.rotation === 270;
   const width = rotated ? target.height : target.width;
   const height = rotated ? target.width : target.height;
+  ctx.save();
   ctx.translate(target.width / 2, target.height / 2);
   ctx.rotate(settings.rotation * Math.PI / 180);
   ctx.scale(settings.flipX ? -1 : 1, settings.flipY ? -1 : 1);
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(canvas, -width / 2, -height / 2, width, height);
-  return ctx.getImageData(0, 0, target.width, target.height).data;
+  ctx.drawImage(source, crop.x, crop.y, crop.width, crop.height, -width / 2, -height / 2, width, height);
+  ctx.restore();
 }
 
 export const SAMPLES = ['Concrete Study', 'Orbital Field', 'Calibration Chart'];

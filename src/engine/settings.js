@@ -18,8 +18,11 @@ export const DEFAULTS = Object.freeze({
   lockAspect: true, lineHeight: 1.12, spacing: 0, font: 'mono', weight: 400,
   brightness: 0, exposure: 0, contrast: 16, gamma: 1, black: 0, white: 100, saturation: 100,
   contrastPivot: 50, shadows: 0, midtones: 0, highlights: 0, vibrance: 0, temperature: 0, tint: 0,
+  curve0: 0, curve25: 25, curve50: 50, curve75: 75, curve100: 100,
   soften: 0, detail: 0, grain: 0, posterize: 0, hardThreshold: false, cutoff: 50,
   invert: false, flipX: false, flipY: false, rotation: 0, grayscale: 'perceptual',
+  cropX: 0, cropY: 0, cropWidth: 100, cropHeight: 100,
+  maskMode: 'off', maskThreshold: 50, maskTolerance: 18, maskFeather: 10, maskColor: '#808080', maskInvert: false,
   sampling: 'average', mapping: 'linear', foreground: '#eaeaea', background: '#101010',
   transparent: false, color: 'mono', lowInk: '#3f5d9c', highInk: '#f0e5bf', dither: 'none', intensity: 35, seed: 42,
   edge: 54, shape: 40, threshold: 48, edgeOperator: 'sobel', polarity: 'light',
@@ -79,6 +82,9 @@ export const PRESETS = [
 export const TONE_KEYS = ['brightness', 'contrast', 'exposure', 'gamma', 'contrastPivot',
   'shadows', 'midtones', 'highlights', 'black', 'white', 'invert'];
 export const TEXTURE_KEYS = ['soften', 'detail', 'grain', 'posterize', 'hardThreshold', 'cutoff'];
+export const CURVE_KEYS = ['curve0', 'curve25', 'curve50', 'curve75', 'curve100'];
+export const CROP_KEYS = ['cropX', 'cropY', 'cropWidth', 'cropHeight'];
+export const MASK_KEYS = ['maskMode', 'maskThreshold', 'maskTolerance', 'maskFeather', 'maskColor', 'maskInvert'];
 
 export function varySettings(settings) {
   const seed = (settings.seed + 1) % 2147483648;
@@ -108,6 +114,7 @@ const choices = {
   mode: Object.keys(MODES), font: Object.keys(FONT_FAMILIES), sampling: ['average', 'center', 'minimum', 'maximum', 'median', 'gaussian'],
   mapping: ['linear', 'gamma', 'equalized'], edgeOperator: ['sobel', 'scharr', 'prewitt'],
   grayscale: ['perceptual', 'linear', 'average'], polarity: ['light', 'dark'],
+  maskMode: ['off', 'highlights', 'shadows', 'colour'],
   color: ['mono', 'source', 'ansi16', 'gray4', 'duotone'], dither: ['none', 'random', 'bayer', 'floyd', 'atkinson'],
   quality: ['draft', 'standard', 'final'], rotation: [0, 90, 180, 270], weight: [400, 700],
 };
@@ -115,6 +122,9 @@ const ranges = {
   columns: [16, 480], rows: [1, 480], lineHeight: [.8, 2], spacing: [-2, 6],
   brightness: [-100, 100], exposure: [-3, 3], contrast: [-100, 100], gamma: [.2, 4],
   contrastPivot: [0, 100], shadows: [-100, 100], midtones: [-100, 100], highlights: [-100, 100],
+  curve0: [0, 100], curve25: [0, 100], curve50: [0, 100], curve75: [0, 100], curve100: [0, 100],
+  cropX: [0, 99], cropY: [0, 99], cropWidth: [1, 100], cropHeight: [1, 100],
+  maskThreshold: [0, 100], maskTolerance: [0, 100], maskFeather: [0, 100],
   vibrance: [-100, 100], temperature: [-100, 100], tint: [-100, 100],
   soften: [0, 100], detail: [0, 100], grain: [0, 100], posterize: [0, 16], cutoff: [0, 100],
   black: [0, 99], white: [1, 100], saturation: [0, 200], intensity: [0, 100],
@@ -136,11 +146,13 @@ export function normalizeSettings(input = {}) {
       if (key === 'posterize' && s[key] === 1) s[key] = 2;
     } else if (typeof DEFAULTS[key] === 'boolean') {
       if (typeof value === 'boolean') s[key] = value;
-    } else if (['foreground', 'background', 'lowInk', 'highInk'].includes(key)) {
+    } else if (['foreground', 'background', 'lowInk', 'highInk', 'maskColor'].includes(key)) {
       if (typeof value === 'string' && /^#[\da-f]{6}$/i.test(value)) s[key] = value;
     } else if (typeof value === 'string') {
       s[key] = value.slice(0, key === 'text' ? 8192 : 1024);
     }
   }
+  s.cropWidth = Math.min(s.cropWidth, 100 - s.cropX);
+  s.cropHeight = Math.min(s.cropHeight, 100 - s.cropY);
   return s;
 }

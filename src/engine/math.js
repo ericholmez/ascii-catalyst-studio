@@ -7,11 +7,20 @@ export function luminance(r, g, b, method = 'perceptual') {
   return .2126 * r + .7152 * g + .0722 * b;
 }
 
+export function cropRect(width, height, settings) {
+  const x = Math.min(width - 1, Math.round(width * (settings.cropX ?? 0) / 100));
+  const y = Math.min(height - 1, Math.round(height * (settings.cropY ?? 0) / 100));
+  const right = Math.round(width * ((settings.cropX ?? 0) + (settings.cropWidth ?? 100)) / 100);
+  const bottom = Math.round(height * ((settings.cropY ?? 0) + (settings.cropHeight ?? 100)) / 100);
+  return { x, y, width: clamp(right - x, 1, width - x), height: clamp(bottom - y, 1, height - y) };
+}
+
 export function gridSize(width, height, cellWidth, cellHeight, settings) {
   const limit = settings.quality === 'draft' ? 84 : 480;
   const cols = Math.min(limit, settings.columns);
   const rotated = settings.rotation === 90 || settings.rotation === 270;
-  const ratio = rotated ? width / height : height / width;
+  const crop = cropRect(width, height, settings);
+  const ratio = rotated ? crop.width / crop.height : crop.height / crop.width;
   const rows = Math.round(settings.lockAspect
     ? cols * ratio * cellWidth / cellHeight
     : settings.rows * cols / settings.columns);
