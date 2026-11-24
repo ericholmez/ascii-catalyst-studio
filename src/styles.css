@@ -201,8 +201,10 @@ body:has(> .catalyst) { margin: 0; }
 .artboard { position: absolute; top: 50%; left: 50%; outline: 1px solid #353535; transform-origin: center; }
 .artboard canvas { display: block; width: 100%; height: 100%; }
 .artboard.transparent { background: repeating-conic-gradient(#242424 0% 25%, #191919 0% 50%) center / 16px 16px; }
-#source-canvas, #crop-source-canvas, #compare-canvas, #perspective-guide { position: absolute; inset: 0; }
-#perspective-guide { pointer-events: none; }
+#source-canvas, #crop-source-canvas, #compare-canvas, #perspective-guide, #paint-mask-guide { position: absolute; inset: 0; }
+#perspective-guide, #paint-mask-guide, .mask-brush-ring { pointer-events: none; }
+#paint-mask-guide { opacity: .7; }
+.mask-brush-ring { position: absolute; border: 1px solid #fff; outline: 1px solid #111; border-radius: 50%; transform: translate(-50%, -50%); }
 .viewport.source-editing { cursor: crosshair; }
 .artboard:has(.crop-outline:not([hidden])) { overflow: hidden; }
 .crop-outline { position: absolute; border: 1px solid #fff; box-shadow: 0 0 0 9999px #0008; pointer-events: none; }
@@ -213,6 +215,7 @@ body:has(> .catalyst) { margin: 0; }
 }
 .curve-chart { width: 100%; height: 112px; background: var(--deep); display: block; border: 1px solid var(--line); }
 .curve-labels { display: flex; justify-content: space-between; color: var(--mute); font-size: .72rem; margin-top: 5px; }
+.mask-paint-controls { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 9px; }
 .split-line { position: absolute; top: 0; bottom: 0; width: 1px; background: #fff; pointer-events: none; }
 .stage-meta, .stage-bottom { display: flex; pointer-events: none; position: absolute; justify-content: space-between; z-index: 1; left: 12px; right: 12px; color: #aaa; font-size: .68rem; letter-spacing: .06em; }
 .stage-meta { top: 9px; }

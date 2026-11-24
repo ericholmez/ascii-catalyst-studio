@@ -20,9 +20,9 @@ Deploy the contents of `dist/` to any static server. Use a trailing slash for su
 
 ## Workspaces
 
-| Workspace | Available in v0.4 |
+| Workspace | Available in v0.5 |
 | --- | --- |
-| Create | Eight conversion methods, 18 built-in styles, local presets, seeded variations, crop, perspective correction, texture filters, tone curve, luminance and colour masks, histogram, and cell inspector. |
+| Create | Eight conversion methods, 18 built-in styles, local presets, seeded variations, crop, perspective correction, texture filters, tone curve, automatic and painted masks, histogram, and cell inspector. |
 | Character Lab | Editable ramps, fonts, glyph coverage, bounding dimensions, axis bias, artwork usage, sorting, and text export. |
 | Compositor | Glyph brush, eraser, and typography layers with order, position, rotation, opacity and blending. |
 | Text Lab | Repeated text sequences with image-driven glyph opacity. |
@@ -35,7 +35,9 @@ Open **Tonal range**, **Texture**, or **Colour and dithering** for fine adjustme
 
 Open **Perspective** to mark four corners on the original image. Select top-left, top-right, bottom-right, and bottom-left in order. The built-in **Perspective Chart** has four markers to try. Use **Crop and orientation** to frame the corrected source, then **Compare** to see it alongside the artwork.
 
-In **Texture**, **Median cleanup** smooths isolated luminance speckles and **Pixel block size** averages colours across blocks. **Tone curve** maps five input levels to adjustable outputs. In **Masks**, keep a luminance range or sample a key colour directly from the original, then adjust feathering. Enable **Transparent background** for alpha-capable exports.
+In **Texture**, **Median cleanup** smooths isolated luminance speckles and **Pixel block size** averages colours across blocks. **Tone curve** maps five input levels to adjustable outputs.
+
+In **Masks**, keep a luminance range or sample a key colour directly from the original. Open **Paint mask** and draw with **Hide**, or use **Erase mask (restore)** to remove those marks. Brush size is a percentage of the shorter source edge. **Apply painted mask** lets you compare with the brush marks bypassed. Enable **Transparent background** for alpha-capable exports.
 
 ## Compatibility and storage
 

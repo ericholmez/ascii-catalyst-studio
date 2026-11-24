@@ -136,6 +136,8 @@ export function paintCurve(root, settings) {
   canvas.setAttribute('aria-label', 'Tone curve output values ' + CURVE_KEYS.map((key) => settings[key] + '%').join(', '));
 }
 
+export const paintedStrokeLabel = (count) => count + (count === 1 ? ' painted stroke' : ' painted strokes');
+
 function maskControls(state) {
   const s = state.settings;
   const mode = s.maskMode;
@@ -148,8 +150,17 @@ function maskControls(state) {
     ['off', 'Off'], ['highlights', 'Keep highlights'], ['shadows', 'Keep shadows'], ['colour', 'Remove key colour'],
   ]) + (mode === 'off' ? '' : target + range('maskFeather', 'Feather', s.maskFeather, 0, 100)
     + check('maskInvert', 'Invert mask', s.maskInvert)
-    + actions(button('Reset mask', 'reset-mask'))
-    + hint('Enable Transparent background under Colour and dithering to export with alpha.')));
+    + actions(button('Reset automatic mask', 'reset-mask')))
+    + '<div class="mask-paint-controls">'
+    + select('paintBrushMode', 'Painted mask brush', state.paintBrushMode, [['hide', 'Hide'], ['restore', 'Erase mask (restore)']], 'paint-brush')
+    + number('paintBrushSize', 'Brush size (%)', state.paintBrushSize, 1, 60, 1, 'paint-brush')
+    + number('paintHardness', 'Brush hardness (%)', state.paintHardness, 0, 100, 1, 'paint-brush')
+    + actions(button('Paint mask', 'paint-mask', ' aria-pressed="' + (state.sourceTool === 'paint-mask') + '"'),
+      button('Clear painted mask', 'clear-painted-mask', state.maskStrokes.length ? '' : ' disabled'))
+    + check('paintMaskEnabled', 'Apply painted mask', state.paintMaskEnabled, 'paint-mask-setting')
+    + '<p class="hint" id="mask-stroke-count">' + paintedStrokeLabel(state.maskStrokes.length) + '</p></div>'
+    + hint('Use the pointer to draw, or the arrow keys to move and Enter to stamp.')
+    + hint('Enable Transparent background under Colour and dithering to export with alpha.'));
 }
 
 function createControls(state) {

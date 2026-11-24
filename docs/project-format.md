@@ -15,3 +15,5 @@ An `.acatalyst` file is UTF-8 JSON. The root `format` is `"ASCII-CATALYST"` and 
 An omitted source leaves the workspace empty with its settings loaded. Browser fonts and media decoders can affect regenerated artwork. Image and character-data exports preserve the rendered artwork or grid directly.
 
 When set, perspective is eight normalized coordinates in top-left, top-right, bottom-right, bottom-left order. Crop coordinates refer to the corrected image. Projects saved before v0.4 default to an uncorrected source with the new filters off.
+
+Painted masks use the optional top-level fields `maskStrokes` and `paintMaskEnabled`. Each stroke stores `mode` (`hide` or `restore`), `size` as a percentage of the shorter source edge, `hardness` from 0 to 100, and `points` as a flat array of normalized x/y pairs in original source coordinates. The project format limits masks to 160 strokes with up to 1024 points each. A missing `paintMaskEnabled` means enabled, and a missing `maskStrokes` means empty.

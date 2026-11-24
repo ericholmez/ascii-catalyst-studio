@@ -30,6 +30,8 @@ The tone curve is a piecewise-linear mapping with knots at 0%, 25%, 50%, 75% and
 
 Median Cleanup mixes in the 3×3 luminance median of visible neighbours. Pixel Block Size averages RGB in alpha-weighted blocks with sides measured in conversion samples. Both filters preserve per-pixel alpha and run before the soften and detail passes.
 
+Painted masks store strokes in normalized coordinates on the original source. The editor rasterizes them at up to 1024 pixels on the long edge, then samples the coverage through the same perspective, crop, flip and rotation as conversion. Painted coverage multiplies source alpha and the automatic mask. Restoring coverage affects the painted mask. The editor caches sampled coverage independently of tonal adjustments.
+
 Duotone interpolates two user-chosen ink colours using each cell’s adjusted luminance. Half blocks use independent colours for their upper and lower samples.
 
 `art.cells` is a row-major `Uint16Array` of indices into `art.glyphs`. RGBA arrays hold foreground and optional per-cell background. `opacity` controls glyph alpha. `influence` records the selected method and `usage` counts glyph IDs. The worker transfers array buffers, and the editor terminates outdated workers. Browsers that block workers use a synchronous fallback.

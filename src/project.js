@@ -1,6 +1,7 @@
 import { normalizeSettings, cleanGlyphs } from './engine/settings.js';
 import { clamp } from './engine/math.js';
 import { decodeImage, sampleImage, SAMPLES } from './engine/image.js';
+import { normalizeMaskStrokes } from './engine/paint-mask.js';
 
 const storageName = 'ascii-catalyst';
 const storeName = 'projects';
@@ -38,9 +39,9 @@ function canvasBlob(canvas) {
     : reject(new Error('Could not encode the source image.')), 'image/png'));
 }
 
-export async function snapshotProject({ source, name, settings, layers, edits, editGrid, exportOptions }, embedSource = true) {
+export async function snapshotProject({ source, name, settings, layers, edits, editGrid, exportOptions, maskStrokes, paintMaskEnabled }, embedSource = true) {
   return {
-    format: 'ASCII-CATALYST', version: 1, name, settings, layers, edits, editGrid, exportOptions,
+    format: 'ASCII-CATALYST', version: 1, name, settings, layers, edits, editGrid, exportOptions, maskStrokes, paintMaskEnabled,
     source: source?.sample ? { sample: source.sample } : source && embedSource ? {
       name: source.name, blob: source.blob || await canvasBlob(source.canvas),
     } : null,
@@ -54,6 +55,8 @@ export function validateProject(project) {
   return {
     name: typeof project.name === 'string' ? project.name.slice(0, 100) : 'Untitled',
     settings: normalizeSettings(project.settings && typeof project.settings === 'object' ? project.settings : {}),
+    maskStrokes: normalizeMaskStrokes(project.maskStrokes),
+    paintMaskEnabled: project.paintMaskEnabled !== false,
     layers: normalizeLayers(project.layers),
     edits: normalizeEdits(project.edits),
     editGrid: /^\d{1,3}x\d{1,6}$/.test(project.editGrid) ? project.editGrid : '',

@@ -2,6 +2,7 @@ import { convert } from './engine/convert.js';
 import { fontMetrics, glyphAtlas, PATCH_W, PATCH_H } from './engine/glyphs.js';
 import { correctedSource, decodeImage, drawFramedSource, sampleImage, sampleSource, SAMPLES } from './engine/image.js';
 import { clamp, cropRect, gridSize, rgbHex } from './engine/math.js';
+import { drawMaskStroke, maskSurface, MAX_MASK_STROKES, MAX_STROKE_POINTS, sampleMaskAlpha } from './engine/paint-mask.js';
 import { validPerspective } from './engine/perspective.js';
 import { renderComposition } from './engine/render.js';
 import { CROP_KEYS, CURVE_KEYS, DEFAULTS, MASK_KEYS, MODES, normalizeSettings, PRESETS, RAMPS,
@@ -10,7 +11,7 @@ import { artworkText, download, escapeMarkup, exportArtwork } from './engine/exp
 import { normalizeLayers, presetStorage, projectSource, serializeProject, snapshotProject, storage, validateProject } from './project.js';
 import { MediaSession } from './media.js';
 import { button, controlsMarkup, dialogMarkup, inspectorMarkup, outputControls, paintCurve, paintInspector, paintPerspectiveGuide,
-  presetNameMarkup, projectNameMarkup, quality, samplesMarkup, WORKSPACES } from './ui.js';
+  paintedStrokeLabel, presetNameMarkup, projectNameMarkup, quality, samplesMarkup, WORKSPACES } from './ui.js';
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -21,6 +22,8 @@ const artCanvas = $('#art-canvas');
 const original = $('#source-canvas');
 const cropSource = $('#crop-source-canvas');
 const perspectiveGuide = $('#perspective-guide');
+const paintMaskGuide = $('#paint-mask-guide');
+const brushRing = $('.mask-brush-ring');
 const comparison = $('#compare-canvas');
 const adjusted = $('#adjusted-canvas');
 const controls = $('#controls');
@@ -33,6 +36,8 @@ const state = {
   presets: [], presetGroup: 'Featured',
   sourceTool: null, toolView: 'art', draftCrop: null,
   draftCorners: [], cornerCursor: { x: .15, y: .15 },
+  maskStrokes: [], paintMaskEnabled: true, paintBrushMode: 'hide', paintBrushSize: 12, paintHardness: 100,
+  maskCursor: null, draftMaskStroke: null,
   scale: 1, panX: 0, panY: 0, grid: false, map: false, selectedGlyph: '',
   inspectIndex: null, layers: [], selectedLayer: -1, edits: {}, editGrid: '', archive: [],
   painting: false, erasing: false, brush: '@',
@@ -42,7 +47,7 @@ const undoStack = [];
 const redoStack = [];
 let worker, workerUnavailable = false, pending = false, timer, job = 0, toastTimer, autosaveTimer;
 let sampled, gesture, dialogType, sourceRequest = 0, hasRecovery = false;
-let comparedSource, comparedFrame, cropPreviewSource;
+let comparedSource, comparedFrame, cropPreviewSource, sampledMask, maskOverlayFrame, drawnMaskOverlay;
 let initialized = false;
 
 const frameKeys = [...CROP_KEYS, 'rotation', 'flipX', 'flipY', 'perspective'];
@@ -128,6 +133,7 @@ function historySnapshot() {
   return {
     settings: { ...state.settings }, source: state.source, layers: structuredClone(state.layers),
     edits: { ...state.edits }, editGrid: state.editGrid, name: state.name, projectId: state.projectId,
+    maskStrokes: state.maskStrokes, paintMaskEnabled: state.paintMaskEnabled,
     activePreset: state.activePreset, exportOptions: { ...state.exportOptions },
   };
 }
@@ -148,6 +154,7 @@ function restoreHistory(from, to) {
   if (!from.length) return;
   to.push(historySnapshot());
   Object.assign(state, from.pop());
+  state.draftMaskStroke = null;
   state.selectedLayer = Math.min(state.selectedLayer, state.layers.length - 1);
   state.inspectIndex = null;
   sampled = null;
@@ -165,7 +172,7 @@ function setSource(source, { remember = true } = {}) {
   state.media.stop();
   if (state.sourceTool) setView('art');
   if (remember) recordHistory();
-  Object.assign(state, { source, art: null, inspectIndex: null, edits: {}, editGrid: '', scale: 1, panX: 0, panY: 0 });
+  Object.assign(state, { source, art: null, inspectIndex: null, edits: {}, editGrid: '', maskStrokes: [], paintMaskEnabled: true, scale: 1, panX: 0, panY: 0 });
   sampled = null;
   showControls();
   showInspector();
@@ -211,6 +218,18 @@ function schedule(delay = 0, mediaFrame = false) {
 
 const isMedia = () => state.workspace === 'motion' && state.media.playing;
 
+function paintedSamples(frame, settings) {
+  if (!state.paintMaskEnabled || !state.maskStrokes.length) return null;
+  if (sampledMask?.frame === frame && sampledMask.strokes === state.maskStrokes) return sampledMask.alpha;
+  const { source, cols, rows } = frame;
+  const surface = maskSurface(source, state.maskStrokes);
+  const pixels = surface.getContext('2d').getImageData(0, 0, surface.width, surface.height).data;
+  const alpha = sampleMaskAlpha(pixels, surface.width, surface.height, cols * PATCH_W, rows * PATCH_H,
+    source.width, source.height, settings);
+  sampledMask = { frame, strokes: state.maskStrokes, alpha };
+  return alpha;
+}
+
 function renderJob() {
   if (!state.source) return;
   const id = ++job;
@@ -233,6 +252,7 @@ function renderJob() {
       sampled = { source, cols, rows, frame, pixels: sampleSource(source, cols, rows, s) };
     }
     const pixels = sampled.pixels.slice();
+    const paintedMask = paintedSamples(sampled, s);
     const preview = state.view === 'adjusted';
     const finish = (art) => {
       if (id !== job) return;
@@ -270,13 +290,15 @@ function renderJob() {
           workerUnavailable = true;
           schedule();
         };
-        worker.postMessage({ id, pixels, cols, rows, atlas, settings: s, inspect: state.inspectIndex, preview }, [pixels.buffer]);
+        const maskTransfer = paintedMask?.slice();
+        worker.postMessage({ id, pixels, cols, rows, atlas, settings: s, inspect: state.inspectIndex, preview,
+          paintedMask: maskTransfer }, maskTransfer ? [pixels.buffer, maskTransfer.buffer] : [pixels.buffer]);
         return;
       } catch {
         workerUnavailable = true;
       }
     }
-    finish(convert(sampled.pixels, cols, rows, atlas, s, { inspect: state.inspectIndex, preview }));
+    finish(convert(sampled.pixels, cols, rows, atlas, s, { inspect: state.inspectIndex, preview, paintedMask }));
   } catch (error) {
     pending = false;
     status('Conversion failed');
@@ -343,6 +365,32 @@ function drawCropSource() {
   cropPreviewSource = source;
 }
 
+function scheduleMaskOverlay() {
+  if (maskOverlayFrame) return;
+  maskOverlayFrame = requestAnimationFrame(() => {
+    maskOverlayFrame = null;
+    if (state.sourceTool !== 'paint-mask' || !state.source) return;
+    const source = state.source.canvas;
+    if (!state.draftMaskStroke && drawnMaskOverlay?.source === source && drawnMaskOverlay.strokes === state.maskStrokes) return;
+    const surface = maskSurface(source, state.maskStrokes);
+    const { width, height } = surface;
+    if (paintMaskGuide.width !== width || paintMaskGuide.height !== height) {
+      paintMaskGuide.width = width;
+      paintMaskGuide.height = height;
+    }
+    const ctx = paintMaskGuide.getContext('2d');
+    ctx.clearRect(0, 0, width, height);
+    ctx.drawImage(surface, 0, 0);
+    if (state.draftMaskStroke) drawMaskStroke(ctx, state.draftMaskStroke);
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-out';
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, width, height);
+    ctx.restore();
+    drawnMaskOverlay = state.draftMaskStroke ? null : { source, strokes: state.maskStrokes };
+  });
+}
+
 function showSourceTool() {
   const tool = state.sourceTool;
   const guide = $('.source-tool-guide');
@@ -351,15 +399,30 @@ function showSourceTool() {
   $('[data-action="draw-crop"]')?.setAttribute('aria-pressed', tool === 'crop');
   $('[data-action="pick-key"]')?.setAttribute('aria-pressed', tool === 'key');
   $('[data-action="choose-perspective"]')?.setAttribute('aria-pressed', tool === 'perspective');
+  $('[data-action="paint-mask"]')?.setAttribute('aria-pressed', tool === 'paint-mask');
   guide.hidden = !tool;
   outline.hidden = tool !== 'crop';
   perspectiveGuide.hidden = tool !== 'perspective';
+  paintMaskGuide.hidden = tool !== 'paint-mask';
+  brushRing.hidden = tool !== 'paint-mask' || !state.maskCursor;
   if (!tool) return;
   const label = tool === 'crop' ? 'Drag to mark the crop' : tool === 'key' ? 'Select a colour in the original image'
-    : 'Select ' + cornerNames[state.draftCorners.length] + ' (' + (state.draftCorners.length + 1) + '/4)';
+    : tool === 'paint-mask' ? (state.paintBrushMode === 'hide' ? 'Paint to hide' : 'Erase to restore')
+      : 'Select ' + cornerNames[state.draftCorners.length] + ' (' + (state.draftCorners.length + 1) + '/4)';
   const message = guide.querySelector('span');
   if (message.textContent !== label) message.textContent = label;
+  guide.querySelector('button').textContent = tool === 'paint-mask' ? 'Done' : 'Cancel';
   if (tool === 'perspective') paintPerspectiveGuide(perspectiveGuide, state.draftCorners, state.cornerCursor);
+  if (tool === 'paint-mask') {
+    if (state.maskCursor) {
+      const diameter = Math.min(board.clientWidth, board.clientHeight) * state.paintBrushSize / 100;
+      Object.assign(brushRing.style, {
+        left: state.maskCursor.x * 100 + '%', top: state.maskCursor.y * 100 + '%',
+        width: diameter + 'px', height: diameter + 'px',
+      });
+    }
+    scheduleMaskOverlay();
+  }
   if (tool === 'crop') {
     const { cropX, cropY, cropWidth, cropHeight } = state.draftCrop ?? state.settings;
     Object.assign(outline.style, { left: cropX + '%', top: cropY + '%', width: cropWidth + '%', height: cropHeight + '%' });
@@ -382,7 +445,8 @@ function refreshView() {
   adjusted.hidden = !showAdjusted;
   $('.split-line').hidden = !split;
   $('.compare-control').hidden = !split;
-  board.classList.toggle('transparent', state.settings.transparent || (showAdjusted && state.settings.maskMode !== 'off'));
+  const hasMask = state.settings.maskMode !== 'off' || (state.paintMaskEnabled && state.maskStrokes.length > 0);
+  board.classList.toggle('transparent', state.settings.transparent || (showAdjusted && hasMask));
   const percent = Number($('#split').value);
   if (split) drawComparison();
   if (rectifiedCrop) drawCropSource();
@@ -553,6 +617,8 @@ function setView(view) {
   state.sourceTool = null;
   state.draftCrop = null;
   state.draftCorners = [];
+  state.draftMaskStroke = null;
+  state.maskCursor = null;
   state.view = view;
   fit();
   if (view === 'adjusted' && !state.art?.processed) schedule();
@@ -565,10 +631,52 @@ function beginSourceTool(tool) {
   state.sourceTool = tool;
   state.draftCrop = null;
   state.draftCorners = [];
+  state.draftMaskStroke = null;
+  state.maskCursor = tool === 'paint-mask' ? { x: .5, y: .5 } : null;
   state.cornerCursor = cornerStarts[0];
   state.view = 'source';
   fit();
   viewport.focus({ preventScroll: true });
+}
+
+function beginMaskStroke({ x, y }) {
+  if (state.maskStrokes.length >= MAX_MASK_STROKES) {
+    toast('Clear or undo painted strokes before adding more.');
+    return;
+  }
+  state.draftMaskStroke = { mode: state.paintBrushMode, size: state.paintBrushSize,
+    hardness: state.paintHardness, points: [x, y] };
+}
+
+function extendMaskStroke({ x, y }) {
+  const points = state.draftMaskStroke?.points;
+  if (!points || Math.hypot(x - points.at(-2), y - points.at(-1)) < .001) return;
+  if (points.length < MAX_STROKE_POINTS * 2) points.push(x, y);
+  else points.splice(-2, 2, x, y);
+}
+
+function setPaintMask(strokes, enabled) {
+  recordHistory();
+  state.maskStrokes = strokes;
+  state.paintMaskEnabled = enabled;
+  const count = $('#mask-stroke-count');
+  if (count) count.textContent = paintedStrokeLabel(strokes.length);
+  const clear = $('[data-action="clear-painted-mask"]');
+  if (clear) clear.disabled = !strokes.length;
+  const toggle = $('[data-paint-mask-setting]');
+  if (toggle) toggle.checked = enabled;
+  state.inspectIndex = null;
+  if (state.sourceTool === 'paint-mask') showSourceTool();
+  schedule();
+  autosave();
+}
+
+function finishMaskStroke(position) {
+  if (!state.draftMaskStroke) return;
+  extendMaskStroke(position);
+  const stroke = state.draftMaskStroke;
+  state.draftMaskStroke = null;
+  setPaintMask([...state.maskStrokes, stroke], true);
 }
 
 function placeCorner(position) {
@@ -735,6 +843,8 @@ const actionHandlers = {
     changeSettings(Object.fromEntries(MASK_KEYS.map((key) => [key, DEFAULTS[key]])));
   },
   'draw-crop': () => beginSourceTool('crop'),
+  'paint-mask': () => beginSourceTool('paint-mask'),
+  'clear-painted-mask': () => setPaintMask([], true),
   'choose-perspective': () => beginSourceTool('perspective'),
   'reset-perspective': () => {
     if (state.sourceTool === 'perspective') setView(state.toolView);
@@ -880,6 +990,13 @@ let streamingControl;
 
 app.addEventListener('input', (event) => {
   const node = event.target;
+  if (node.dataset.paintBrush && node.type === 'number') {
+    if (Number.isFinite(node.valueAsNumber)) {
+      state[node.dataset.paintBrush] = clamp(Math.round(node.valueAsNumber), Number(node.min), Number(node.max));
+      showSourceTool();
+    }
+    return;
+  }
   if (node.dataset.project) {
     state.name = node.value.slice(0, 100);
     autosave();
@@ -934,6 +1051,13 @@ app.addEventListener('change', async (event) => {
       const paired = node.closest('.range');
       if (paired && !rebuild) for (const item of paired.querySelectorAll('input')) item.value = state.settings[key];
       if (['foreground', 'background', 'transparent', 'scale'].includes(key)) showInspector();
+    } else if (node.dataset.paintBrush) {
+      const key = node.dataset.paintBrush;
+      state[key] = node.type === 'number' ? clamp(Math.round(value), Number(node.min), Number(node.max)) : value;
+      if (node.type === 'number') node.value = state[key];
+      showSourceTool();
+    } else if (node.dataset.paintMaskSetting) {
+      setPaintMask(state.maskStrokes, value);
     } else if (node.dataset.presetGroup) {
       state.presetGroup = node.value;
       showInspector();
@@ -1050,6 +1174,11 @@ viewport.addEventListener('pointerdown', (event) => {
     const start = sourcePosition(event, true);
     if (start) {
       gesture = { sourceTool: state.sourceTool, start, x: event.clientX, y: event.clientY };
+      if (state.sourceTool === 'paint-mask') {
+        beginMaskStroke(start);
+        state.maskCursor = start;
+        showSourceTool();
+      }
       viewport.setPointerCapture(event.pointerId);
     }
     return;
@@ -1060,6 +1189,12 @@ viewport.addEventListener('pointerdown', (event) => {
   if (gesture.paint) drawCell(hit(event));
 });
 viewport.addEventListener('pointermove', (event) => {
+  if (state.sourceTool === 'paint-mask') {
+    state.maskCursor = sourcePosition(event, !state.draftMaskStroke);
+    if (state.maskCursor) extendMaskStroke(state.maskCursor);
+    showSourceTool();
+    return;
+  }
   if (state.sourceTool === 'perspective') {
     state.cornerCursor = sourcePosition(event);
     showSourceTool();
@@ -1101,11 +1236,14 @@ function endGesture(event) {
       } else if (completed && state.sourceTool === 'perspective') {
         const position = sourcePosition(event, true);
         if (position) placeCorner(position);
+      } else if (completed && state.sourceTool === 'paint-mask') {
+        finishMaskStroke(sourcePosition(event));
       }
     } catch (error) {
       errorMessage(error);
     }
     state.draftCrop = null;
+    state.draftMaskStroke = null;
     gesture = null;
     showSourceTool();
     return;
@@ -1127,6 +1265,11 @@ function endGesture(event) {
 }
 viewport.addEventListener('pointerup', endGesture);
 viewport.addEventListener('pointercancel', endGesture);
+viewport.addEventListener('pointerleave', () => {
+  if (state.sourceTool !== 'paint-mask' || state.draftMaskStroke) return;
+  state.maskCursor = null;
+  showSourceTool();
+});
 viewport.addEventListener('wheel', (event) => {
   if (!event.ctrlKey && !event.metaKey) return;
   event.preventDefault();
@@ -1140,6 +1283,21 @@ document.addEventListener('keydown', (event) => {
   if (event.target.matches('input, textarea, select, [contenteditable]') || dialog.open) return;
   if (event.target === viewport && state.sourceTool === 'perspective' && !event.ctrlKey && !event.metaKey && !event.altKey) {
     moveCorner(event);
+    return;
+  }
+  if (event.target === viewport && state.sourceTool === 'paint-mask' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    const cursor = state.maskCursor ?? { x: .5, y: .5 };
+    const direction = cornerSteps[event.key];
+    if (direction) {
+      event.preventDefault();
+      const step = event.shiftKey ? .05 : .01;
+      state.maskCursor = { x: clamp(cursor.x + direction[0] * step), y: clamp(cursor.y + direction[1] * step) };
+      showSourceTool();
+    } else if (event.key === 'Enter' && !event.repeat) {
+      event.preventDefault();
+      beginMaskStroke(cursor);
+      finishMaskStroke(cursor);
+    }
     return;
   }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
@@ -1169,6 +1327,12 @@ document.addEventListener('keydown', (event) => {
 
 state.media = new MediaSession((source, time) => {
   if (pending && isMedia()) return;
+  source.mediaGeneration = state.media.generation;
+  if (state.source?.mediaGeneration !== source.mediaGeneration && state.maskStrokes.length) {
+    recordHistory();
+    state.maskStrokes = [];
+    state.paintMaskEnabled = true;
+  }
   state.source = source;
   const seek = $('#seek');
   if (seek && document.activeElement !== seek) seek.value = time.toFixed(2);

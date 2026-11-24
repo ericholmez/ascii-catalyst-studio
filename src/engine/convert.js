@@ -116,10 +116,11 @@ function putColor(buffer, index, r, g, b, alpha, mode, duo) {
 export function convert(pixels, cols, rows, atlas, input = {}, options = {}) {
   if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1 || cols * rows > 115200
     || pixels.length !== cols * rows * PATCH_SIZE * 4) throw new Error('Invalid conversion sampling grid.');
+  if (options.paintedMask && options.paintedMask.length !== pixels.length / 4) throw new Error('Invalid painted mask sampling grid.');
   const start = performance.now();
   const settings = normalizeSettings(input);
   const width = cols * PATCH_W;
-  const { light, colors, histogram } = adjustImage(pixels, width, rows * PATCH_H, settings);
+  const { light, colors, histogram } = adjustImage(pixels, width, rows * PATCH_H, settings, options.paintedMask);
   const duo = settings.color === 'duotone' ? [hexRgb(settings.lowInk), hexRgb(settings.highInk)] : null;
   const gradients = ['edges', 'structure', 'hybrid'].includes(settings.mode)
     ? gradientMap(light, width, rows * PATCH_H, settings.edgeOperator) : null;

@@ -82,7 +82,7 @@ function localTone(colors, width, height) {
   return { tone, smoothed };
 }
 
-export function adjustImage(pixels, width, height, settings) {
+export function adjustImage(pixels, width, height, settings, paintedMask) {
   const count = pixels.length / 4;
   const colors = new Uint8ClampedArray(pixels.length);
   const light = new Float32Array(count);
@@ -151,8 +151,9 @@ export function adjustImage(pixels, width, height, settings) {
     if (mask) {
       const value = key ? Math.hypot(pixels[p] - key[0], pixels[p + 1] - key[1], pixels[p + 2] - key[2]) / (255 * Math.sqrt(3)) : tone;
       colors[p + 3] *= mask(value);
-      if (!colors[p + 3]) continue;
     }
+    if (paintedMask) colors[p + 3] *= paintedMask[i] / 255;
+    if (!colors[p + 3]) continue;
     if (settings.hardThreshold) {
       tone = Number(tone >= cutoff);
       colors[p] = colors[p + 1] = colors[p + 2] = tone * 255;

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { convert } from '../src/engine/convert.js';
 import { adjustImage } from '../src/engine/adjust.js';
+import { normalizeMaskStrokes, sampleMaskAlpha } from '../src/engine/paint-mask.js';
 import { perspectiveMatrix, perspectiveSize, projectPoint, validPerspective, warpPerspective } from '../src/engine/perspective.js';
 import { glyphOrientation, PATCH_W, PATCH_H } from '../src/engine/glyphs.js';
 import { braille, cropRect, gridSize, linear, luminance, nearestPalette, randomAt } from '../src/engine/math.js';
@@ -291,4 +292,40 @@ test('pixelation alpha-weights block colour and keeps partial and transparent pi
   const source = Uint8ClampedArray.from([230, 0, 0, 0, 100, 50, 0, 255, 0, 150, 200, 128]);
   const result = adjusted(source, 3, 1, { pixelSize: 3 }).colors;
   assert.deepEqual([...result], [0, 0, 0, 0, 67, 83, 67, 255, 67, 83, 67, 128]);
+});
+
+test('painted mask coordinates follow crop, rotation, flip and perspective', () => {
+  const source = Uint8ClampedArray.from([0, 80, 160, 255].flatMap((alpha) => gray(255, alpha)));
+  const sample = (w, h, settings) => [...sampleMaskAlpha(source, 2, 2, w, h, 2, 2, normalizeSettings(settings))];
+  assert.deepEqual(sample(2, 2, {}), [0, 80, 160, 255]);
+  assert.deepEqual(sample(2, 2, { rotation: 90 }), [160, 0, 255, 80]);
+  assert.deepEqual(sample(2, 2, { flipX: true }), [80, 0, 255, 160]);
+  assert.deepEqual(sample(1, 2, { cropX: 50, cropWidth: 50 }), [80, 255]);
+  assert.deepEqual(sample(1, 2, { perspective: [.5, 0, 1, 0, 1, 1, .5, 1] }), [80, 255]);
+});
+
+test('painted coverage combines with automatic masks and source alpha', () => {
+  const source = Uint8ClampedArray.from([...gray(20), ...gray(180, 128), ...gray(200, 255)]);
+  const mask = Uint8ClampedArray.from([255, 128, 0]);
+  const settings = normalizeSettings({ contrast: 0, maskMode: 'highlights', maskThreshold: 50, maskFeather: 0 });
+  const { colors, histogram } = adjustImage(source, 3, 1, settings, mask);
+  assert.deepEqual([colors[3], colors[7], colors[11]], [0, 64, 0]);
+  assert.equal(histogram[180], 1);
+  assert.equal(histogram[200], 0);
+  const art = convert(pixels(1, 1, () => gray(255)), 1, 1, atlas, { mode: 'tonal' },
+    { paintedMask: new Uint8ClampedArray(PATCH_W * PATCH_H), preview: true });
+  assert.equal(artworkText(art), ' ');
+  assert.equal(art.processed[3], 0);
+});
+
+test('project files validate painted masks and preserve the bypass switch', () => {
+  const stroke = { mode: 'hide', size: 85, hardness: -10, points: [-.2, .35, 1.2, .9] };
+  assert.deepEqual(normalizeMaskStrokes([stroke, { mode: 'restore', points: [0] }]),
+    [{ mode: 'hide', size: 60, hardness: 0, points: [0, .35, 1, .9] }]);
+  const old = validateProject({ format: 'ASCII-CATALYST', version: 1 });
+  assert.deepEqual(old.maskStrokes, []);
+  assert.equal(old.paintMaskEnabled, true);
+  const restored = validateProject({ format: 'ASCII-CATALYST', version: 1, maskStrokes: [stroke], paintMaskEnabled: false });
+  assert.equal(restored.maskStrokes.length, 1);
+  assert.equal(restored.paintMaskEnabled, false);
 });
