@@ -1,17 +1,10 @@
 import { escapeMarkup as esc, FORMATS } from './engine/export.js';
-import { FONT_FAMILIES, MODES, PRESETS, RAMPS } from './engine/settings.js';
+import { MODES, PRESETS, RAMPS } from './engine/settings.js';
 import { SAMPLES } from './engine/image.js';
 
 export const WORKSPACES = {
-  studio: ['01', 'Studio', 'Text as medium. Data as material.'],
-  characters: ['02', 'Character Lab', 'Inspect the material of text.'],
-  compositor: ['03', 'Compositor', 'Edit cells and arrange typography layers.'],
-  text: ['04', 'Text Lab', 'Reconstruct an image with a fixed text sequence.'],
-  motion: ['05', 'Motion', 'Convert local video frames and procedural animation.'],
-  live: ['06', 'Live', 'Render a local camera feed as character art.'],
-  archive: ['07', 'Archive', 'Manage projects saved in this browser.'],
-  output: ['08', 'Output', 'Prepare the artwork for its next medium.'],
-  index: ['09', 'Index', 'Explore the principles behind character art.'],
+  create: 'Create', characters: 'Character Lab', compositor: 'Compositor', text: 'Text Lab',
+  motion: 'Motion', archive: 'Archive', output: 'Output', index: 'Index',
 };
 
 const attr = (key, value) => ' data-' + key + '="' + esc(value) + '"';
@@ -48,7 +41,7 @@ function sourceControls(state) {
     + esc(state.source?.name || 'Drop, paste or browse') + '</span>' + button('Samples', 'samples', ' class="text-button"') + '</div>', '01');
 }
 
-function studioControls(state) {
+function createControls(state) {
   const s = state.settings;
   return sourceControls(state)
     + section('Conversion', select('mode', 'Method', s.mode, pairs(MODES))
@@ -59,31 +52,52 @@ function studioControls(state) {
     + section('Resolution', range('columns', 'Columns', s.columns, 16, 480)
       + check('lockAspect', 'Lock aspect ratio', s.lockAspect)
       + (!s.lockAspect ? range('rows', 'Rows', s.rows, 1, 480) : ''), '03')
-    + section('Tone', range('brightness', 'Brightness', s.brightness, -100, 100)
-      + range('contrast', 'Contrast', s.contrast, -100, 100), '04')
+    + '<section class="section"><div class="section-heading"><h2 class="section-title">Tone</h2>'
+      + button('Reset', 'reset-tone', ' class="text-button" aria-label="Reset tone"') + '</div>'
+      + range('brightness', 'Brightness', s.brightness, -100, 100)
+      + range('contrast', 'Contrast', s.contrast, -100, 100)
+      + range('exposure', 'Exposure (stops)', s.exposure, -3, 3, .1)
+      + actions(button('Preview adjustments', 'preview-adjustments', ' aria-pressed="' + (state.view === 'adjusted') + '"'))
+      + '</section>'
+    + details('Tonal range', range('shadows', 'Shadows', s.shadows, -100, 100)
+      + range('midtones', 'Midtones', s.midtones, -100, 100)
+      + range('highlights', 'Highlights', s.highlights, -100, 100)
+      + range('contrastPivot', 'Contrast pivot', s.contrastPivot, 0, 100)
+      + range('gamma', 'Gamma', s.gamma, .2, 4, .05)
+      + range('black', 'Black point', s.black, 0, 99) + range('white', 'White point', s.white, 1, 100)
+      + check('invert', 'Invert source', s.invert))
+    + details('Texture', range('soften', 'Soften', s.soften, 0, 100)
+      + range('detail', 'Detail boost', s.detail, 0, 100)
+      + range('grain', 'Grain', s.grain, 0, 100)
+      + range('posterize', 'Posterize (0 = off)', s.posterize, 0, 16)
+      + check('hardThreshold', 'Black and white threshold', s.hardThreshold)
+      + (s.hardThreshold ? range('cutoff', 'Threshold point', s.cutoff, 0, 100) : '')
+      + number('seed', 'Random seed', s.seed, 0, 2147483647)
+      + actions(button('Reset texture', 'reset-texture')))
     + details('Structure', select('edgeOperator', 'Edge operator', s.edgeOperator, [['sobel', 'Sobel'], ['scharr', 'Scharr'], ['prewitt', 'Prewitt']])
       + range('edge', 'Edge influence', s.edge, 0, 100)
       + range('shape', 'Shape fidelity', s.shape, 0, 100)
       + check('map', 'Show method influence', state.map, 'view-setting'))
-    + details('Colour and dithering', select('color', 'Colour', s.color,
-      [['mono', 'Monochrome'], ['source', 'Source colours'], ['gray4', 'Four-tone grey'], ['ansi16', 'ANSI 16']])
-      + input('foreground', 'Foreground', s.foreground, 'color') + input('background', 'Background', s.background, 'color')
+    + details('Colour and dithering', select('color', 'Ink colours', s.color,
+      [['mono', 'Monochrome'], ['source', 'Source colours'], ['gray4', 'Four-tone grey'], ['ansi16', 'ANSI 16'], ['duotone', 'Duotone']])
+      + (s.color === 'mono' ? input('foreground', 'Foreground', s.foreground, 'color') : '')
+      + (s.color === 'duotone' ? input('lowInk', 'Shadow ink', s.lowInk, 'color') + input('highInk', 'Highlight ink', s.highInk, 'color') : '')
+      + input('background', 'Background', s.background, 'color')
       + check('transparent', 'Transparent background', s.transparent)
+      + range('saturation', 'Saturation', s.saturation, 0, 200)
+      + range('vibrance', 'Vibrance', s.vibrance, -100, 100)
+      + range('temperature', 'Temperature', s.temperature, -100, 100)
+      + range('tint', 'Tint', s.tint, -100, 100)
       + select('polarity', 'Ink polarity', s.polarity, [['light', 'Light ink'], ['dark', 'Dark ink']])
       + select('dither', 'Dithering', s.dither, [['none', 'None'], ['bayer', 'Ordered Bayer'], ['random', 'Seeded noise'], ['floyd', 'Floyd–Steinberg'], ['atkinson', 'Atkinson']])
       + range('intensity', 'Dither intensity', s.intensity, 0, 100))
-    + (state.advanced ? details('Levels and transforms', range('exposure', 'Exposure (stops)', s.exposure, -3, 3, .1)
-      + range('gamma', 'Gamma', s.gamma, .2, 4, .05) + range('saturation', 'Saturation', s.saturation, 0, 200)
-      + range('black', 'Black point', s.black, 0, 99) + range('white', 'White point', s.white, 1, 100)
-      + check('invert', 'Invert source', s.invert)
-      + check('flipX', 'Flip horizontally', s.flipX) + check('flipY', 'Flip vertically', s.flipY)
+    + (state.advanced ? details('Transforms', check('flipX', 'Flip horizontally', s.flipX) + check('flipY', 'Flip vertically', s.flipY)
       + select('rotation', 'Rotation', s.rotation, [0, 90, 180, 270].map((a) => [a, a + '°'])))
       + details('Sampling and effects', select('grayscale', 'Luminance', s.grayscale,
         [['perceptual', 'Weighted display RGB'], ['linear', 'Linear-light sRGB'], ['average', 'RGB average']])
         + select('sampling', 'Cell sample', s.sampling, ['average', 'center', 'minimum', 'maximum', 'median', 'gaussian'].map((key) => [key, key]))
         + select('mapping', 'Tonal mapping', s.mapping, [['linear', 'Linear'], ['gamma', 'Gamma lift'], ['equalized', 'Histogram equalization']])
-        + range('dropout', 'Character dropout', s.dropout, 0, 100)
-        + number('seed', 'Random seed', s.seed, 0, 2147483647))
+        + range('dropout', 'Character dropout', s.dropout, 0, 100))
       + details('Typography and quality', fontControls(s) + quality(s)
         + actions(button('Reset settings', 'reset'))) : '');
 }
@@ -166,22 +180,20 @@ export function controlsMarkup(state) {
   if (state.workspace === 'output') return section('Export settings', outputControls(state));
   if (state.workspace === 'index') return INDEX_TOPICS.map(([title, desc, label, action]) =>
     details(title, '<p>' + esc(desc) + '</p>' + actions(button(label, action)), title === INDEX_TOPICS[0][0])).join('');
-  if (state.workspace === 'motion' || state.workspace === 'live') {
-    const live = state.workspace === 'live';
+  if (state.workspace === 'motion') {
     const media = state.media;
-    return section(live ? 'Camera source' : 'Motion source', actions(
-      ...(live ? [button('Start camera', 'camera'), button('Stop camera', 'stop-media')] :
-        [button('Open video or GIF', 'open-video'), button('Orbital animation', 'animate'), button(media.playing ? 'Pause' : 'Play', 'play-media')]))
-      + (live ? check('mirrored', 'Mirror camera', media.mirrored, 'media') : number('seek', 'Position (seconds)', media.time, 0, media.duration || 86400, .05, 'media'))
-      + (!live ? actions(button('Previous frame', 'frame-back'), button('Next frame', 'frame-next')) : '')
+    return section('Motion source', actions(button('Open video or GIF', 'open-video'),
+      button('Orbital animation', 'animate'), button(media.playing ? 'Pause' : 'Play', 'play-media'))
+      + number('seek', 'Position (seconds)', media.time, 0, media.duration || 86400, .05, 'media')
+      + actions(button('Previous frame', 'frame-back'), button('Next frame', 'frame-next'))
       + number('fps', 'Target FPS', media.fps, 1, 30, 1, 'media')
       + actions(button('Freeze frame', 'freeze'), button('Snapshot PNG', 'media-snapshot'),
         button(media.recording ? 'Stop recording' : 'Record WebM', 'record-media'))
-      + hint(live ? 'Camera access requires browser permission. The stream stays on this device.' : 'Playback uses the browser’s available media decoders.'))
+      + hint('Playback uses the browser’s available media decoders.'))
       + section('Conversion', select('mode', 'Method', s.mode, pairs(MODES))
         + range('columns', 'Columns', s.columns, 16, 480));
   }
-  return studioControls(state);
+  return createControls(state);
 }
 
 function diagnosticMarkup(state) {
@@ -195,6 +207,28 @@ function diagnosticMarkup(state) {
     + '</dd><dt>Tone</dt><dd>' + (d.tone * 100).toFixed(1) + '%</dd></dl>'
     + (d.candidates.length ? '<dl class="meta">' + d.candidates.map((candidate) => '<dt>' + esc(candidate.glyph === ' ' ? 'Space' : candidate.glyph)
       + '</dt><dd>' + candidate.score.toFixed(3) + '</dd>').join('') + '</dl>' : '');
+}
+
+const featured = [0, 1, 8, 9, 13, 17];
+const presetGroups = ['Featured', ...new Set(PRESETS.map(([, , , group]) => group)), 'All', 'Saved'];
+
+function presetsMarkup(state) {
+  const group = state.presetGroup;
+  const builtins = PRESETS.flatMap(([name, description, , category], index) => {
+    if (!(group === 'All' || group === category || (group === 'Featured' && featured.includes(index)))) return [];
+    return [button(name, 'preset', attr('preset', index)
+      + ' title="' + esc(description) + '" aria-pressed="' + (state.activePreset === index) + '"')];
+  });
+  const saved = group === 'Saved' ? state.presets.map(({ id, name }) =>
+    button(name, 'saved-preset', attr('preset-id', id) + ' aria-pressed="' + (state.activePreset === id) + '"')) : [];
+  const active = PRESETS[state.activePreset]?.[1] ?? '';
+  return section('Presets', select('preset-group', 'Style collection', group, presetGroups.map((key) => [key, key]), 'preset-group')
+    + '<div class="preset-grid">' + [...builtins, ...saved].join('') + '</div>'
+    + (group === 'Saved' && !saved.length ? hint('No saved presets yet.') : '')
+    + (active ? hint(active) : '')
+    + actions(button('Vary style', 'vary-style', ' title="Generate a repeatable variation of the current settings"'),
+      button('Save preset', 'save-preset'),
+      ...(group === 'Saved' && state.presets.some(({ id }) => id === state.activePreset) ? [button('Remove preset', 'remove-preset')] : [])));
 }
 
 export function inspectorMarkup(state) {
@@ -236,14 +270,11 @@ export function inspectorMarkup(state) {
   if (state.workspace === 'output') return sourceInfo + section('Artwork data', art
     ? hint(art.cols + ' columns × ' + art.rows + ' rows. Text exports preserve the cell grid and any painted characters.')
     : hint('Load an image to generate artwork.'));
-  if (state.workspace === 'motion' || state.workspace === 'live') {
+  if (state.workspace === 'motion') {
     return section('Playback', hint(state.media.message))
       + histogram;
   }
-  return sourceInfo + '<section class="section"><h2 class="section-title">Presets</h2><div class="preset-grid">'
-    + PRESETS.map(([name, description], index) => button(name, 'preset', attr('preset', index)
-      + ' title="' + esc(description) + '" aria-pressed="' + (state.activePreset === index) + '"')).join('')
-    + '</div></section>' + histogram + section('Cell inspector', diagnosticMarkup(state));
+  return sourceInfo + (state.workspace === 'create' ? presetsMarkup(state) : '') + histogram + section('Cell inspector', diagnosticMarkup(state));
 }
 
 export function paintInspector(state, root) {
@@ -287,3 +318,6 @@ export function dialogMarkup(title, content) {
 export const samplesMarkup = () => '<div class="stack">' + SAMPLES.map((name, i) => button(name, 'sample', attr('sample', i))).join('') + '</div>';
 export const projectNameMarkup = (state) => input('dialog-project-name', 'Project name', state.name, 'text', 'project')
   + actions(button('Save locally', 'save-local', ' class="primary"'), button('Download project', 'project-download'));
+export const presetNameMarkup = () => '<div class="field"><label for="preset-name">Preset name</label>'
+  + '<input type="text" id="preset-name" maxlength="48" autocomplete="off" autofocus></div>'
+  + actions(button('Save locally', 'save-preset-local', ' class="primary"'));

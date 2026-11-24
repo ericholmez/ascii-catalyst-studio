@@ -63,12 +63,13 @@ body:has(> .catalyst) { margin: 0; }
 .topbar {
   display: flex;
   align-items: center;
-  gap: clamp(12px, 2.7vw, 48px);
+  gap: clamp(12px, 1.5vw, 24px);
   min-height: 62px;
   padding: 0 clamp(16px, 2.3vw, 34px);
   border-bottom: 1px solid var(--line);
   background: #0d0d0d;
 }
+.brand-heading { flex: none; margin: 0; display: flex; }
 .wordmark {
   display: inline-flex;
   align-items: center;
@@ -82,7 +83,7 @@ body:has(> .catalyst) { margin: 0; }
 .brand-mark { margin-right: 10px; font: 700 1.23rem/1 var(--mono); letter-spacing: -.15em; }
 .brand-mark b { margin-right: .1em; }
 .dim { color: var(--mute); }
-.workspaces { display: flex; flex: 1; gap: clamp(12px, 1.9vw, 31px); min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+.workspaces { display: flex; flex: 1; gap: clamp(10px, 1.2vw, 20px); min-width: 0; overflow-x: auto; scrollbar-width: thin; }
 .workspaces a {
   padding: 21px 0 18px;
   border-bottom: 2px solid transparent;
@@ -95,13 +96,8 @@ body:has(> .catalyst) { margin: 0; }
 .workspaces a:hover, .workspaces a[aria-current="page"] { color: var(--ink); }
 .workspaces a[aria-current="page"] { border-color: var(--ink); }
 .settings-top { flex: none; }
-.heading { display: flex; justify-content: space-between; align-items: end; gap: 18px; padding: 25px clamp(16px, 2.3vw, 34px) 23px; }
-.eyebrow { margin: 0 0 4px; color: var(--mute); font-size: .73rem; letter-spacing: .14em; }
-.heading h1 { margin: 0; font: 800 clamp(2.85rem, 5.4vw, 4.85rem)/.99 var(--heading); letter-spacing: -.095em; }
-.heading h1 span { color: #a5a5a5; }
-.heading p:last-child { margin: 10px 0 0; text-transform: uppercase; color: var(--sub); letter-spacing: .09em; font-size: .74rem; }
 .project-actions, .button-group { display: flex; align-items: center; gap: 6px; }
-.project-actions { flex-wrap: wrap; justify-content: end; }
+.project-actions { flex: none; flex-wrap: wrap; justify-content: end; }
 .project-actions > button { padding-inline: 13px; }
 .project-actions .primary { margin-left: 4px; }
 .button-group { gap: 0; margin-right: 4px; }
@@ -113,7 +109,7 @@ body:has(> .catalyst) { margin: 0; }
   grid-template-columns: var(--left-panel) minmax(0, 1fr) var(--right-panel);
   flex: 1;
   min-height: 560px;
-  margin: 0 clamp(16px, 2.3vw, 34px);
+  margin: 10px clamp(16px, 2.3vw, 34px) 0;
   border: 1px solid var(--line);
 }
 .workspace.inspector-collapsed { --right-panel: 39px; }
@@ -141,6 +137,9 @@ body:has(> .catalyst) { margin: 0; }
 .section summary { cursor: pointer; margin: 0; }
 .section[open] summary { margin-bottom: 12px; }
 .section .section-title + .field { margin-top: 0; }
+.section-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 5px; margin-bottom: 7px; }
+.section-heading .section-title { margin: 0; }
+.section-heading .text-button { flex: none; }
 .section p { margin: 7px 0; color: var(--sub); overflow-wrap: anywhere; }
 .section .hint, .hint { color: var(--mute); font-size: .78rem; }
 .field { margin: 10px 0 0; min-width: 0; }
@@ -222,7 +221,8 @@ body:has(> .catalyst) { margin: 0; }
 .meta { display: grid; grid-template-columns: 1fr max-content; gap: 3px 6px; font-size: .75rem; margin: 8px 0 0; }
 .meta dt { color: var(--mute); }
 .meta dd { margin: 0; text-align: right; }
-.preset-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.preset-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin-top: 8px; }
+.preset-grid:empty { display: none; }
 .preset-grid button { text-align: left; padding: 5px 7px; overflow-wrap: anywhere; font-size: .77rem; }
 .preset-grid button[aria-pressed="true"] { border-color: #777; background: #242424; color: #fff; }
 .histogram { width: 100%; height: 56px; display: block; border: 1px solid var(--line); background: var(--deep); }
@@ -245,16 +245,23 @@ body:has(> .catalyst) { margin: 0; }
 .dialog-top { display: flex; align-items: start; justify-content: space-between; gap: 10px; }
 .dialog-top button { min-height: 28px; }
 .toast { position: fixed; bottom: 16px; right: 16px; z-index: 5; max-width: min(420px, calc(100vw - 32px)); background: #242424; border: 1px solid #696969; color: #fff; padding: 10px 14px; }
-.catalyst.presentation .topbar, .catalyst.presentation .heading, .catalyst.presentation .controls,
+.catalyst.presentation .topbar, .catalyst.presentation .controls,
 .catalyst.presentation .inspector, .catalyst.presentation .statusbar, .catalyst.presentation .artwork-footer { display: none; }
 .catalyst.presentation .workspace { grid-template-columns: minmax(0, 1fr); margin: 0; border: 0; min-height: 100dvh; }
 .catalyst.presentation .artwork-bar { position: absolute; z-index: 3; right: 0; opacity: .45; }
 .catalyst.presentation .artwork-bar:hover, .catalyst.presentation .artwork-bar:focus-within { opacity: 1; }
 @media (min-width: 951px) {
-  .workspace { height: max(560px, calc(100dvh - 267px)); flex: none; }
+  .workspace { height: max(560px, calc(100dvh - 118px)); flex: none; }
   .controls, .inspector { overflow: hidden; }
   .panel-content { height: calc(100% - 43px); max-height: none; }
   .catalyst.presentation .workspace { height: 100dvh; }
+}
+@media (max-width: 1149px) {
+  .topbar { flex-wrap: wrap; column-gap: 18px; row-gap: 0; }
+  .project-actions { order: 3; width: 100%; padding-bottom: 8px; }
+}
+@media (950px < width <= 1149px) {
+  .workspace { height: max(560px, calc(100dvh - 160px)); }
 }
 @media (max-width: 950px) {
   .workspace { grid-template-columns: 205px minmax(0, 1fr); }
@@ -266,8 +273,7 @@ body:has(> .catalyst) { margin: 0; }
   .topbar { flex-wrap: wrap; gap: 0; justify-content: space-between; padding-top: 8px; }
   .workspaces { order: 3; flex-basis: 100%; gap: 20px; }
   .workspaces a { padding-block: 11px 9px; }
-  .heading { align-items: start; flex-direction: column; padding-block: 18px 15px; }
-  .project-actions { justify-content: start; gap: 4px; }
+  .project-actions { order: 4; gap: 4px; padding-top: 8px; }
   .project-actions > button { padding-inline: 8px; }
   .workspace { display: flex; flex-direction: column; margin-inline: 9px; }
   .artwork { order: -1; }

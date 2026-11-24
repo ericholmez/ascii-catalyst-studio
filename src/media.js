@@ -9,7 +9,6 @@ export class MediaSession {
     this.fps = 12;
     this.time = 0;
     this.duration = 0;
-    this.mirrored = false;
     this.playing = false;
     this.message = 'No moving source is active.';
     this.generation = 0;
@@ -42,24 +41,11 @@ export class MediaSession {
     }
     const url = URL.createObjectURL(file);
     this.url = url;
-    await this.openElement({ src: url }, file.name, generation, false);
+    await this.openElement(url, file.name, generation);
   }
 
-  async camera() {
-    this.stop();
-    const generation = this.generation;
-    if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera access requires a supported browser and a secure context.');
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-    if (generation !== this.generation) {
-      stream.getTracks().forEach((track) => track.stop());
-      return;
-    }
-    this.stream = stream;
-    await this.openElement({ srcObject: stream }, 'Local camera', generation, true);
-  }
-
-  async openElement(source, name, generation, camera) {
-    const video = Object.assign(document.createElement('video'), { muted: true, playsInline: true, loop: !camera, ...source });
+  async openElement(src, name, generation) {
+    const video = Object.assign(document.createElement('video'), { muted: true, playsInline: true, loop: true, src });
     this.video = video;
     try {
       await video.play();
@@ -147,10 +133,6 @@ export class MediaSession {
     const scale = Math.min(1, 1000 / Math.max(width, height));
     const canvas = makeCanvas(Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale)));
     const ctx = canvas.getContext('2d');
-    if (this.mirrored && this.stream) {
-      ctx.translate(canvas.width, 0);
-      ctx.scale(-1, 1);
-    }
     ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
     this.onFrame({ canvas, name: 'Media frame.png', type: 'image/png', size: 0 }, this.time);
   }
@@ -210,15 +192,13 @@ export class MediaSession {
     this.generation++;
     this.pause();
     this.stopRecording();
-    this.stream?.getTracks().forEach((track) => track.stop());
     if (this.video) {
-      this.video.srcObject = null;
       this.video.removeAttribute('src');
       this.video.load();
     }
     if (this.url) URL.revokeObjectURL(this.url);
     this.decoder?.close();
-    Object.assign(this, { video: null, stream: null, url: null, decoder: null, procedural: false, time: 0, duration: 0 });
+    Object.assign(this, { video: null, url: null, decoder: null, procedural: false, time: 0, duration: 0 });
     this.message = 'No moving source is active.';
     this.onChange();
   }

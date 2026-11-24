@@ -4,30 +4,22 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101010">
-  <meta name="description" content="A browser-local studio for turning images into character-based art.">
+  <meta name="description" content="A browser-local tool for turning images into character-based art.">
   <meta name="ascii-repository" content="">
-  <title>ASCII-CATALYST / Studio</title>
+  <title>ASCII-CATALYST</title>
   <link rel="stylesheet" href="./src/styles.css">
   <script type="module" src="./src/app.js"></script>
 </head>
 <body>
 <main class="catalyst" id="app">
   <header class="topbar">
-    <a class="wordmark" href="#studio" aria-label="ASCII-Catalyst Studio"><span class="brand-mark" aria-hidden="true">[<b>░</b>]</span> ASCII<span class="dim">–</span>CATALYST</a>
+    <h1 class="brand-heading"><a class="wordmark" href="#create" aria-label="ASCII-CATALYST"><span class="brand-mark" aria-hidden="true">[<b>░</b>]</span> ASCII<span class="dim">-</span>CATALYST</a></h1>
     <nav class="workspaces" aria-label="Workspaces">
-      <a href="#studio">Studio</a><a href="#characters">Character Lab</a><a href="#compositor">Compositor</a>
-      <a href="#text">Text Lab</a><a href="#motion">Motion</a><a href="#live">Live</a>
+      <a href="#create">Create</a><a href="#characters">Character Lab</a><a href="#compositor">Compositor</a>
+      <a href="#text">Text Lab</a><a href="#motion">Motion</a>
       <a href="#archive">Archive</a><a href="#output">Output</a><a href="#index">Index</a>
     </nav>
-    <button class="icon-button settings-top" data-action="settings" title="Studio settings" aria-label="Studio settings">⚙</button>
-  </header>
-  <section class="heading">
-    <div>
-      <p class="eyebrow">ASCII-CATALYST / <span id="workspace-id">01</span></p>
-      <h1 id="workspace-title">Studio<span>.</span></h1>
-      <p id="workspace-description">Text as medium. Data as material.</p>
-    </div>
-    <div class="project-actions">
+    <div class="project-actions" role="group" aria-label="Project actions">
       <div class="button-group" aria-label="Project history">
         <button class="icon-button" data-action="undo" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>↶</button>
         <button class="icon-button" data-action="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled>↷</button>
@@ -35,7 +27,8 @@
       <button data-action="new">New</button><button data-action="open">Open</button><button data-action="save">Save</button>
       <button class="primary" data-action="export">Export <span aria-hidden="true">↓</span></button>
     </div>
-  </section>
+    <button class="icon-button settings-top" data-action="settings" title="Settings" aria-label="Settings">⚙</button>
+  </header>
   <div class="workspace">
     <aside class="controls" aria-label="Conversion controls">
       <header class="panel-bar"><span>Parameters</span><button class="text-button" data-action="advanced" aria-pressed="false">Advanced</button></header>
@@ -57,6 +50,7 @@
         <div class="artboard" id="artboard">
           <canvas id="art-canvas" role="img" aria-label="Character artwork preview"></canvas>
           <canvas id="source-canvas" role="img" aria-label="Original source image preview" hidden></canvas>
+          <canvas id="adjusted-canvas" role="img" aria-label="Adjusted image preview" hidden></canvas>
           <div class="split-line" hidden></div>
         </div>
         <div class="empty-art" hidden>

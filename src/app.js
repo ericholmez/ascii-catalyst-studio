@@ -1,14 +1,14 @@
 import { convert } from './engine/convert.js';
-import { fontMetrics, glyphAtlas } from './engine/glyphs.js';
+import { fontMetrics, glyphAtlas, PATCH_W, PATCH_H } from './engine/glyphs.js';
 import { decodeImage, sampleImage, sampleSource, SAMPLES } from './engine/image.js';
 import { gridSize } from './engine/math.js';
 import { renderComposition } from './engine/render.js';
-import { DEFAULTS, MODES, normalizeSettings, PRESETS, RAMPS, cleanGlyphs } from './engine/settings.js';
+import { DEFAULTS, MODES, normalizeSettings, PRESETS, RAMPS, TONE_KEYS, TEXTURE_KEYS, cleanGlyphs, varySettings } from './engine/settings.js';
 import { artworkText, download, escapeMarkup, exportArtwork } from './engine/export.js';
-import { normalizeLayers, projectSource, serializeProject, snapshotProject, storage, validateProject } from './project.js';
+import { normalizeLayers, presetStorage, projectSource, serializeProject, snapshotProject, storage, validateProject } from './project.js';
 import { MediaSession } from './media.js';
 import { button, controlsMarkup, dialogMarkup, inspectorMarkup, outputControls, paintInspector,
-  projectNameMarkup, quality, samplesMarkup, WORKSPACES } from './ui.js';
+  presetNameMarkup, projectNameMarkup, quality, samplesMarkup, WORKSPACES } from './ui.js';
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -17,13 +17,15 @@ const viewport = $('#viewport');
 const board = $('#artboard');
 const artCanvas = $('#art-canvas');
 const original = $('#source-canvas');
+const adjusted = $('#adjusted-canvas');
 const controls = $('#controls');
 const inspector = $('#inspector');
 const dialog = $('#dialog');
 const repositoryUrl = $('meta[name="ascii-repository"]').content;
 const state = {
   name: 'Untitled', projectId: null, settings: { ...DEFAULTS }, source: null, art: null,
-  metrics: null, atlas: null, workspace: 'studio', view: 'art', advanced: false, activePreset: -1,
+  metrics: null, atlas: null, workspace: 'create', view: 'art', advanced: false, activePreset: -1,
+  presets: [], presetGroup: 'Featured',
   scale: 1, panX: 0, panY: 0, grid: false, map: false, selectedGlyph: '',
   inspectIndex: null, layers: [], selectedLayer: -1, edits: {}, editGrid: '', archive: [],
   painting: false, erasing: false, brush: '@',
@@ -33,7 +35,7 @@ const undoStack = [];
 const redoStack = [];
 let worker, workerUnavailable = false, pending = false, timer, job = 0, toastTimer, autosaveTimer;
 let sampled, gesture, dialogType, sourceRequest = 0, hasRecovery = false;
-let studioReady = false;
+let initialized = false;
 
 function toast(message) {
   const node = $('#toast');
@@ -60,7 +62,7 @@ function showControls() {
     if (expanded.includes(detail.querySelector('summary').textContent)) detail.open = true;
   }
   controls.scrollTop = position;
-  $('[data-action="advanced"]').hidden = state.workspace !== 'studio';
+  $('[data-action="advanced"]').hidden = state.workspace !== 'create';
   $('[data-action="advanced"]').setAttribute('aria-pressed', state.advanced);
 }
 
@@ -73,8 +75,9 @@ function showInspector() {
 
 function navigate() {
   const route = location.hash.slice(1);
-  const workspace = Object.hasOwn(WORKSPACES, route) ? route : 'studio';
-  if (workspace !== state.workspace && ['live', 'motion'].includes(state.workspace)) {
+  const workspace = Object.hasOwn(WORKSPACES, route) ? route : 'create';
+  if (route && route !== workspace) history.replaceState(null, '', '#' + workspace);
+  if (workspace !== state.workspace && state.workspace === 'motion') {
     state.media.stop();
     drawOriginal();
     schedule();
@@ -84,11 +87,7 @@ function navigate() {
     inspector.scrollTop = 0;
   }
   state.workspace = workspace;
-  const [id, title, subtitle] = WORKSPACES[workspace];
-  $('#workspace-id').textContent = id;
-  $('#workspace-title').replaceChildren(title, Object.assign(document.createElement('span'), { textContent: '.' }));
-  $('#workspace-description').textContent = subtitle;
-  document.title = 'ASCII-CATALYST / ' + title;
+  document.title = workspace === 'create' ? 'ASCII-CATALYST' : 'ASCII-CATALYST / ' + WORKSPACES[workspace];
   for (const item of $$('.workspaces a')) {
     if (item.hash === '#' + workspace) item.setAttribute('aria-current', 'page');
     else item.removeAttribute('aria-current');
@@ -189,10 +188,12 @@ function schedule(delay = 0, mediaFrame = false) {
     status('Waiting for image');
     return;
   }
+  pending = true;
+  status('Preparing preview', true);
   timer = setTimeout(renderJob, delay);
 }
 
-const isMedia = () => ['motion', 'live'].includes(state.workspace) && state.media.playing;
+const isMedia = () => state.workspace === 'motion' && state.media.playing;
 
 function renderJob() {
   if (!state.source) return;
@@ -216,12 +217,18 @@ function renderJob() {
       sampled = { source, cols, rows, rotation: s.rotation, flipX: s.flipX, flipY: s.flipY, pixels: sampleSource(source, cols, rows, s) };
     }
     const pixels = sampled.pixels.slice();
+    const preview = state.view === 'adjusted';
     const finish = (art) => {
       if (id !== job) return;
       pending = false;
       state.art = art;
       state.metrics = metrics;
       state.atlas = atlas;
+      if (art.processed) {
+        adjusted.width = art.cols * PATCH_W;
+        adjusted.height = art.rows * PATCH_H;
+        adjusted.getContext('2d').putImageData(new ImageData(art.processed, adjusted.width, adjusted.height), 0, 0);
+      }
       paint();
       if (isMedia()) paintInspector(state, inspector);
       else showInspector();
@@ -247,13 +254,13 @@ function renderJob() {
           workerUnavailable = true;
           schedule();
         };
-        worker.postMessage({ id, pixels, cols, rows, atlas, settings: s, inspect: state.inspectIndex }, [pixels.buffer]);
+        worker.postMessage({ id, pixels, cols, rows, atlas, settings: s, inspect: state.inspectIndex, preview }, [pixels.buffer]);
         return;
       } catch {
         workerUnavailable = true;
       }
     }
-    finish(convert(sampled.pixels, cols, rows, atlas, s, { inspect: state.inspectIndex }));
+    finish(convert(sampled.pixels, cols, rows, atlas, s, { inspect: state.inspectIndex, preview }));
   } catch (error) {
     pending = false;
     status('Conversion failed');
@@ -297,20 +304,24 @@ function drawOriginal() {
 
 function refreshView() {
   const hasArt = Boolean(state.art);
-  const sourceOnly = state.view === 'source' || !hasArt;
+  const showAdjusted = state.view === 'adjusted' && Boolean(state.art?.processed);
+  const sourceOnly = state.view === 'source' || !hasArt || (state.view === 'adjusted' && !showAdjusted);
   const split = state.view === 'split' && hasArt;
   const visible = state.source && (hasArt || sourceOnly);
   board.hidden = !visible;
   $('.empty-art').hidden = Boolean(state.source);
-  artCanvas.hidden = sourceOnly;
+  artCanvas.hidden = sourceOnly || showAdjusted;
   original.hidden = !sourceOnly && !split;
+  adjusted.hidden = !showAdjusted;
   $('.split-line').hidden = !split;
   $('.compare-control').hidden = !split;
   board.classList.toggle('transparent', state.settings.transparent);
   const percent = Number($('#split').value);
   original.style.clipPath = split ? 'inset(0 ' + (100 - percent) + '% 0 0)' : '';
   $('.split-line').style.left = percent + '%';
-  $('#stage-label').textContent = sourceOnly ? 'SOURCE / PREVIEW' : split ? 'SOURCE / ARTWORK' : 'ASCII / PREVIEW';
+  $('#stage-label').textContent = showAdjusted ? 'ADJUSTED / PREVIEW'
+    : sourceOnly ? 'SOURCE / PREVIEW' : split ? 'SOURCE / ARTWORK' : 'ASCII / PREVIEW';
+  $('[data-action="preview-adjustments"]')?.setAttribute('aria-pressed', state.view === 'adjusted');
   for (const button of $$('[data-view]')) button.setAttribute('aria-pressed', button.dataset.view === state.view);
   if (!visible) {
     for (const key of ['grid', 'cells', 'glyphs', 'mode']) $('#stat-' + key).textContent = key.toUpperCase() + ' —';
@@ -328,7 +339,7 @@ function refreshView() {
 }
 
 function autosave() {
-  if (!studioReady || isMedia()) return;
+  if (!initialized || isMedia()) return;
   clearTimeout(autosaveTimer);
   autosaveTimer = setTimeout(async () => {
     try {
@@ -398,6 +409,7 @@ async function copyText() {
 
 function changeSettings(patch, { history = true, rebuild = true, delay = 0 } = {}) {
   if (history) recordHistory();
+  state.activePreset = -1;
   state.settings = normalizeSettings({ ...state.settings, ...patch });
   if (rebuild) showControls();
   if (Object.keys(patch).every((key) => ['foreground', 'background', 'transparent', 'scale'].includes(key))) {
@@ -410,20 +422,56 @@ function changeSettings(patch, { history = true, rebuild = true, delay = 0 } = {
 }
 
 function choosePreset(index) {
-  const [, name, config] = PRESETS[index];
-  recordHistory();
-  const s = state.settings;
-  state.activePreset = index;
-  state.settings = normalizeSettings({
-    ...DEFAULTS, columns: s.columns, rows: s.rows, lockAspect: s.lockAspect, quality: s.quality, scale: s.scale,
-    font: s.font, weight: s.weight, ...config, ramp: RAMPS[config.library] || DEFAULTS.ramp,
+  const [name, , config] = PRESETS[index];
+  applyPreset(index, {
+    ...DEFAULTS, font: state.settings.font, weight: state.settings.weight,
+    ...config, ramp: RAMPS[config.library] || DEFAULTS.ramp,
   });
+  toast(name + ' applied.');
+}
+
+function applyPreset(id, config) {
+  recordHistory();
+  const framing = ['columns', 'rows', 'lockAspect', 'quality', 'scale', 'rotation', 'flipX', 'flipY'];
+  state.settings = normalizeSettings({ ...config, ...Object.fromEntries(framing.map((key) => [key, state.settings[key]])) });
+  state.activePreset = id;
   state.inspectIndex = null;
   showControls();
   showInspector();
   schedule();
   autosave();
-  return name;
+}
+
+async function refreshPresets() {
+  state.presets = (await presetStorage('getAll')).sort((a, b) => a.name.localeCompare(b.name));
+  if (state.workspace === 'create') showInspector();
+}
+
+async function savePreset() {
+  const name = $('#preset-name').value.trim();
+  if (!name) throw new Error('Enter a preset name.');
+  if (state.presets.length >= 40) throw new Error('Remove a saved preset before adding another.');
+  const id = crypto.randomUUID();
+  await presetStorage('put', { id, name, settings: { ...state.settings } }, id);
+  state.activePreset = id;
+  state.presetGroup = 'Saved';
+  dialog.close();
+  await refreshPresets();
+  toast('Preset saved locally.');
+}
+
+async function removePreset() {
+  const preset = state.presets.find(({ id }) => id === state.activePreset);
+  if (!preset || !confirm('Remove saved preset "' + preset.name + '"?')) return;
+  await presetStorage('delete', preset.id);
+  state.activePreset = -1;
+  await refreshPresets();
+}
+
+function setView(view) {
+  state.view = view;
+  fit();
+  if (view === 'adjusted' && !state.art?.processed) schedule();
 }
 
 function changeLayer(action) {
@@ -499,7 +547,7 @@ const actionHandlers = {
     setSource(sampleImage(SAMPLES[Number(node.dataset.sample)]));
     dialog.close();
   },
-  settings: () => showDialog('settings', 'Studio settings', quality(state.settings)
+  settings: () => showDialog('settings', 'Settings', quality(state.settings)
     + '<p>For viewport navigation use +, − and 0. Press F to toggle presentation and Esc to leave it.</p>'
     + (/^https:\/\//i.test(repositoryUrl) ? '<p><a href="' + escapeMarkup(repositoryUrl)
       + '" target="_blank" rel="noopener noreferrer">Source repository</a></p>' : '')
@@ -514,6 +562,9 @@ const actionHandlers = {
     changeSettings(DEFAULTS);
     dialog.close();
   },
+  'reset-tone': () => changeSettings(Object.fromEntries(TONE_KEYS.map((key) => [key, DEFAULTS[key]]))),
+  'reset-texture': () => changeSettings(Object.fromEntries(TEXTURE_KEYS.map((key) => [key, DEFAULTS[key]]))),
+  'preview-adjustments': () => setView(state.view === 'adjusted' ? 'art' : 'adjusted'),
   cancel: () => {
     stopWork();
     if (isMedia()) state.media.pause();
@@ -539,6 +590,14 @@ const actionHandlers = {
     refreshView();
   },
   preset: (node) => choosePreset(Number(node.dataset.preset)),
+  'vary-style': () => changeSettings(varySettings(state.settings)),
+  'save-preset': () => showDialog('preset', 'Save preset', presetNameMarkup()),
+  'save-preset-local': savePreset,
+  'saved-preset': (node) => {
+    const preset = state.presets.find(({ id }) => id === node.dataset.presetId);
+    if (preset) applyPreset(preset.id, preset.settings);
+  },
+  'remove-preset': removePreset,
   glyph: (node) => {
     state.selectedGlyph = state.atlas?.entries[Number(node.dataset.glyph)]?.glyph || '';
     showInspector();
@@ -602,12 +661,7 @@ const actionHandlers = {
     await refreshArchive();
   },
   'open-video': () => $('#video-file').click(),
-  camera: () => state.media.camera(),
   animate: () => state.media.animate(),
-  'stop-media': () => {
-    state.media.stop();
-    schedule();
-  },
   'play-media': () => {
     state.media.play();
     if (!state.media.playing) schedule();
@@ -630,8 +684,7 @@ app.addEventListener('click', async (event) => {
   const node = event.target.closest('button');
   if (!node) return;
   if (node.dataset.view) {
-    state.view = node.dataset.view;
-    fit();
+    setView(node.dataset.view);
     return;
   }
   const handler = actionHandlers[node.dataset.action];
@@ -666,7 +719,6 @@ app.addEventListener('input', (event) => {
   }
   const sibling = node.closest('.range')?.querySelector('input[type="number"]');
   if (sibling) sibling.value = node.value;
-  state.activePreset = -1;
   changeSettings({ [key]: inputValue(node) }, { history: false, rebuild: false, delay: 105 });
 });
 
@@ -683,16 +735,19 @@ app.addEventListener('change', async (event) => {
       const key = node.dataset.setting;
       const isStreaming = streamingControl === node;
       streamingControl = null;
-      state.activePreset = -1;
       const patch = key === 'library' && RAMPS[value] ? { library: value, ramp: RAMPS[value] }
         : key === 'ramp' ? { ramp: value, library: 'Custom' }
           : { [key]: ['weight', 'rotation'].includes(key) ? Number(value) : value };
-      const rebuild = ['library', 'mode', 'lockAspect'].includes(key);
+      const rebuild = ['library', 'mode', 'lockAspect', 'hardThreshold', 'color'].includes(key);
       changeSettings(patch, { history: !isStreaming, rebuild });
       if (key === 'ramp') controls.querySelector('[data-setting="library"]').value = 'Custom';
       const paired = node.closest('.range');
       if (paired && !rebuild) for (const item of paired.querySelectorAll('input')) item.value = state.settings[key];
       if (['foreground', 'background', 'transparent', 'scale'].includes(key)) showInspector();
+    } else if (node.dataset.presetGroup) {
+      state.presetGroup = node.value;
+      showInspector();
+      $('#preset-group')?.focus();
     } else if (node.dataset.viewSetting) {
       state[node.dataset.viewSetting] = value;
       viewport.classList.toggle('drawing', state.workspace === 'compositor' && state.painting);
@@ -720,7 +775,6 @@ app.addEventListener('change', async (event) => {
       const key = node.dataset.media;
       if (key === 'seek') await state.media.seek(value);
       if (key === 'fps') state.media.fps = Math.max(1, Math.min(30, Math.round(value)));
-      if (key === 'mirrored') state.media.mirrored = value;
     }
   } catch (error) {
     errorMessage(error);
@@ -772,7 +826,7 @@ document.addEventListener('paste', (event) => {
 });
 
 function hit(event) {
-  if (!state.art || state.view === 'source') return null;
+  if (!state.art || ['source', 'adjusted'].includes(state.view)) return null;
   const rect = board.getBoundingClientRect();
   const x = Math.floor((event.clientX - rect.left) / rect.width * state.art.cols);
   const y = Math.floor((event.clientY - rect.top) / rect.height * state.art.rows);
@@ -830,7 +884,7 @@ function endGesture(event) {
       showInspector();
       autosave();
     }
-  } else if (!gesture.moved && cell && event.type === 'pointerup' && ['studio', 'index'].includes(state.workspace)) {
+  } else if (!gesture.moved && cell && event.type === 'pointerup' && ['create', 'index'].includes(state.workspace)) {
     state.inspectIndex = cell.index;
     showInspector();
     schedule();
@@ -881,7 +935,7 @@ state.media = new MediaSession((source, time) => {
   if (state.view !== 'art' || !state.art) drawOriginal();
   schedule(0, true);
 }, () => {
-  if (['motion', 'live'].includes(state.workspace)) {
+  if (state.workspace === 'motion') {
     showControls();
     showInspector();
   }
@@ -898,6 +952,7 @@ async function initialize() {
     document.fonts.load('700 16px "IBM Plex Mono Catalyst"'),
   ]);
   if (!state.source && !undoStack.length && !sourceRequest) setSource(sampleImage(), { remember: false });
+  refreshPresets().catch(() => {});
   const recovery = await storage('get', 'recovery');
   hasRecovery = Boolean(recovery);
   if (recovery && !undoStack.length && !sourceRequest) {
@@ -914,7 +969,7 @@ async function initialize() {
     }
   }
 }
-initialize().catch(() => {}).finally(() => { studioReady = true; });
+initialize().catch(() => {}).finally(() => { initialized = true; });
 
 if ('serviceWorker' in navigator && !['localhost', '127.0.0.1'].includes(location.hostname)) {
   navigator.serviceWorker.register(new URL('../offline.js', import.meta.url)).catch(() => {});

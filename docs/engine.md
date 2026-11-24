@@ -1,6 +1,6 @@
 # Conversion engine
 
-The engine has no dependency on the Studio. In a browser, import the JavaScript modules and wait for any custom web fonts before measuring glyphs.
+The engine has no dependency on the editor. In a browser, import the JavaScript modules and wait for any custom web fonts before measuring glyphs.
 
     import { DEFAULTS } from './src/engine/settings.js';
     import { decodeImage, sampleSource } from './src/engine/image.js';
@@ -22,9 +22,13 @@ The engine has no dependency on the Studio. In a browser, import the JavaScript 
 
 ## Grid and pipeline
 
-Image decoding, orientation and transforms precede rescaling. Preprocessing applies saturation, exposure, brightness, contrast, levels, gamma, inversion, luminance and polarity. Transparent samples contribute no ink. The Studio caches samples by geometry and caches raster measurements by font metrics and ramp. Foreground, background and viewport changes redraw independently of conversion.
+Image decoding, orientation and transforms precede rescaling. The editor caches samples by geometry and raster measurements by font metrics and ramp. Foreground, background and viewport changes redraw independently of conversion.
 
-`art.cells` is a row-major `Uint16Array` of indices into `art.glyphs`. RGBA arrays hold foreground and optional per-cell background. `opacity` controls glyph alpha. `influence` records the selected method and `usage` counts glyph IDs. The worker transfers array buffers, and the Studio terminates outdated workers. Browsers that block workers use a synchronous fallback.
+Preprocessing adjusts colour balance and saturation, then applies exposure, brightness, contrast around a pivot, levels and gamma. Shadows and highlights use squared weights toward their respective ends of the range. Midtones use a bell-shaped weight centred at 50%. Soften and Detail Boost use an alpha-weighted 7×7 luminance average, computed in linear time with two box passes. Seeded grain, posterization and black-and-white thresholding are applied before measuring luminance and ink polarity. Transparent samples contribute no ink. The adjusted image preview shows this processing before glyph and ink selection.
+
+Duotone interpolates two user-chosen ink colours using each cell’s adjusted luminance. Half blocks use independent colours for their upper and lower samples.
+
+`art.cells` is a row-major `Uint16Array` of indices into `art.glyphs`. RGBA arrays hold foreground and optional per-cell background. `opacity` controls glyph alpha. `influence` records the selected method and `usage` counts glyph IDs. The worker transfers array buffers, and the editor terminates outdated workers. Browsers that block workers use a synchronous fallback.
 
 An atlas entry stores ink coverage, bounding box, center of mass, a 4×8 opacity mask, and a doubled-angle orientation vector derived from the gradient tensor. Width measurement rejects many incompatible glyphs. Canvas cannot reliably distinguish all missing glyphs from replacements.
 

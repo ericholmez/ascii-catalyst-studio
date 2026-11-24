@@ -1,57 +1,12 @@
 import { PATCH_W, PATCH_H, PATCH_SIZE, orientation } from './glyphs.js';
-import { ANSI16, braille, clamp, luminance, nearestPalette, randomAt } from './math.js';
+import { ANSI16, braille, clamp, hexRgb, luminance, nearestPalette, randomAt } from './math.js';
 import { cleanGlyphs, normalizeSettings } from './settings.js';
+import { adjustImage } from './adjust.js';
 
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 const FLOYD = [[1, 0, 7 / 16], [-1, 1, 3 / 16], [0, 1, 5 / 16], [1, 1, 1 / 16]];
 const ATKINSON = [[1, 0, .125], [2, 0, .125], [-1, 1, .125], [0, 1, .125], [1, 1, .125], [0, 2, .125]];
 const GLYPH_SHIFTS = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-const PERCENTILES = 256;
-
-function prepare(pixels, settings) {
-  const count = pixels.length / 4;
-  const light = new Float32Array(count);
-  const colors = new Uint8ClampedArray(pixels.length);
-  const histogram = new Uint32Array(PERCENTILES);
-  const contrast = 2 ** (settings.contrast / 70);
-  const exposure = 2 ** settings.exposure;
-  const gamma = 1 / settings.gamma;
-  const brightness = settings.brightness / 100;
-  const black = settings.black / 100;
-  const levels = Math.max(.01, settings.white / 100 - black);
-  const saturation = settings.saturation / 100;
-  for (let i = 0, j = 0; i < count; i++, j += 4) {
-    const alpha = pixels[j + 3] / 255;
-    const red = pixels[j] / 255;
-    const green = pixels[j + 1] / 255;
-    const blue = pixels[j + 2] / 255;
-    const gray = luminance(red, green, blue);
-    for (let channel = 0; channel < 3; channel++) {
-      const base = gray + (pixels[j + channel] / 255 - gray) * saturation;
-      const adjusted = clamp(((base * exposure + brightness - .5) * contrast + .5 - black) / levels) ** gamma;
-      colors[j + channel] = (settings.invert ? 1 - adjusted : adjusted) * 255;
-    }
-    colors[j + 3] = pixels[j + 3];
-    const tone = luminance(colors[j] / 255, colors[j + 1] / 255, colors[j + 2] / 255, settings.grayscale);
-    light[i] = (settings.polarity === 'dark' ? 1 - tone : tone) * alpha;
-    if (alpha) histogram[Math.round(tone * 255)]++;
-  }
-  if (settings.mapping === 'equalized') {
-    const distribution = new Uint32Array(PERCENTILES);
-    for (const value of light) distribution[Math.round(value * 255)]++;
-    let cumulative = 0;
-    const first = distribution.find((value) => value > 0);
-    if (first < count) {
-      for (let i = 0; i < distribution.length; i++) {
-        cumulative += distribution[i];
-        distribution[i] = Math.round(255 * clamp((cumulative - first) / (count - first)));
-      }
-      for (let i = 0; i < count; i++) light[i] = colors[i * 4 + 3]
-        ? distribution[Math.round(light[i] * 255)] / 255 : 0;
-    }
-  }
-  return { light, colors, histogram };
-}
 
 function gradientMap(values, width, height, operator) {
   const gx = new Float32Array(values.length);
@@ -145,9 +100,16 @@ function structuralGlyph(entries, patch, tone, direction, strength, settings, de
   return chosen;
 }
 
-function putColor(buffer, index, r, g, b, alpha, mode) {
+function putColor(buffer, index, r, g, b, alpha, mode, duo) {
   if (mode === 'gray4') r = g = b = Math.round(luminance(r, g, b) / 85) * 85;
   if (mode === 'ansi16') [r, g, b] = ANSI16[nearestPalette(r, g, b)];
+  if (duo) {
+    const tone = luminance(r, g, b) / 255;
+    const [low, high] = duo;
+    r = low[0] + (high[0] - low[0]) * tone;
+    g = low[1] + (high[1] - low[1]) * tone;
+    b = low[2] + (high[2] - low[2]) * tone;
+  }
   buffer.set([r, g, b, alpha], index * 4);
 }
 
@@ -156,8 +118,9 @@ export function convert(pixels, cols, rows, atlas, input = {}, options = {}) {
     || pixels.length !== cols * rows * PATCH_SIZE * 4) throw new Error('Invalid conversion sampling grid.');
   const start = performance.now();
   const settings = normalizeSettings(input);
-  const { light, colors, histogram } = prepare(pixels, settings);
   const width = cols * PATCH_W;
+  const { light, colors, histogram } = adjustImage(pixels, width, rows * PATCH_H, settings);
+  const duo = settings.color === 'duotone' ? [hexRgb(settings.lowInk), hexRgb(settings.highInk)] : null;
   const gradients = ['edges', 'structure', 'hybrid'].includes(settings.mode)
     ? gradientMap(light, width, rows * PATCH_H, settings.edgeOperator) : null;
   const entries = atlas.entries.map((item, id) => ({ ...item, id }));
@@ -293,13 +256,13 @@ export function convert(pixels, cols, rows, atlas, input = {}, options = {}) {
       if (settings.color !== 'mono') {
         if (background) {
           if (a && aa) {
-            putColor(foreground, index, r / a, g / a, b / a, a / 16, settings.color);
-            putColor(background, index, rr / aa, gg / aa, bb / aa, aa / 16, settings.color);
+            putColor(foreground, index, r / a, g / a, b / a, a / 16, settings.color, duo);
+            putColor(background, index, rr / aa, gg / aa, bb / aa, aa / 16, settings.color, duo);
           } else if (a || aa) {
-            putColor(foreground, index, (r + rr) / (a + aa), (g + gg) / (a + aa), (b + bb) / (a + aa), (a + aa) / 16, settings.color);
+            putColor(foreground, index, (r + rr) / (a + aa), (g + gg) / (a + aa), (b + bb) / (a + aa), (a + aa) / 16, settings.color, duo);
           }
         } else if (a + aa) {
-          putColor(foreground, index, (r + rr) / (a + aa), (g + gg) / (a + aa), (b + bb) / (a + aa), 255, settings.color);
+          putColor(foreground, index, (r + rr) / (a + aa), (g + gg) / (a + aa), (b + bb) / (a + aa), 255, settings.color, duo);
         }
       }
       if (detail) diagnostic = {
@@ -322,5 +285,6 @@ export function convert(pixels, cols, rows, atlas, input = {}, options = {}) {
   return {
     cols, rows, cells, glyphs, foreground, background, opacity, influence, histogram, usage, diagnostic,
     occupied: count - usage[blank], duration: performance.now() - start, mode: settings.mode,
+    processed: options.preview ? colors : null,
   };
 }

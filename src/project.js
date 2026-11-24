@@ -4,6 +4,7 @@ import { decodeImage, sampleImage, SAMPLES } from './engine/image.js';
 
 const storageName = 'ascii-catalyst';
 const storeName = 'projects';
+const presetStore = 'presets';
 const blends = new Set(['source-over', 'screen', 'multiply', 'difference']);
 
 export function normalizeLayers(layers = []) {
@@ -95,19 +96,26 @@ export async function serializeProject(project) {
 
 function database() {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(storageName, 1);
-    request.onupgradeneeded = () => request.result.createObjectStore(storeName);
+    const request = indexedDB.open(storageName, 2);
+    request.onupgradeneeded = (event) => {
+      if (event.oldVersion < 1) request.result.createObjectStore(storeName);
+      request.result.createObjectStore(presetStore);
+    };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
+    request.onblocked = () => reject(new Error('Close other open ASCII-CATALYST tabs to update local storage.'));
   });
 }
 
-export async function storage(method, ...args) {
+export const storage = (method, ...args) => transact(storeName, method, args);
+export const presetStorage = (method, ...args) => transact(presetStore, method, args);
+
+async function transact(store, method, args) {
   const db = await database();
   try {
     return await new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, ['get', 'getAll'].includes(method) ? 'readonly' : 'readwrite');
-      const request = tx.objectStore(storeName)[method](...args);
+      const tx = db.transaction(store, ['get', 'getAll'].includes(method) ? 'readonly' : 'readwrite');
+      const request = tx.objectStore(store)[method](...args);
       tx.oncomplete = () => resolve(request.result);
       tx.onerror = () => reject(tx.error || request.error);
       tx.onabort = () => reject(tx.error || new Error('Storage transaction aborted.'));

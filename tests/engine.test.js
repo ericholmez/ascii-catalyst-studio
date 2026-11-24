@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { convert } from '../src/engine/convert.js';
+import { adjustImage } from '../src/engine/adjust.js';
 import { glyphOrientation, PATCH_W, PATCH_H } from '../src/engine/glyphs.js';
 import { braille, gridSize, linear, luminance, nearestPalette, randomAt } from '../src/engine/math.js';
 import { artworkText, encodeCp437, escapeMarkup, exportArtwork } from '../src/engine/export.js';
-import { cleanGlyphs, DEFAULTS, normalizeSettings } from '../src/engine/settings.js';
+import { cleanGlyphs, DEFAULTS, normalizeSettings, PRESETS, varySettings } from '../src/engine/settings.js';
 import { normalizeEdits, serializeProject, validateProject } from '../src/project.js';
 
 const shape = (predicate) => Float32Array.from({ length: PATCH_W * PATCH_H }, (_, i) =>
@@ -136,6 +137,8 @@ test('project parsing validates format, ranges, glyphs and layers', async () => 
   };
   const project = validateProject(JSON.parse(await serializeProject(raw)));
   assert.equal(project.settings.columns, 480);
+  assert.equal(project.settings.contrastPivot, 50);
+  assert.equal(project.settings.posterize, 0);
   assert.equal(project.settings.foreground, DEFAULTS.foreground);
   assert.deepEqual(project.edits, { 1: 'X' });
   assert.deepEqual(project.source, raw.source);
@@ -146,4 +149,70 @@ test('project parsing validates format, ranges, glyphs and layers', async () => 
   assert.deepEqual(cleanGlyphs('A\u200b\u0301\nB'), ['A', 'B']);
   assert.deepEqual(normalizeEdits({ 9999999: '@' }), {});
   assert.equal(normalizeSettings({ columns: NaN }).columns, DEFAULTS.columns);
+});
+
+const adjusted = (source, w, h, patch = {}) => adjustImage(source, w, h,
+  normalizeSettings({ ...DEFAULTS, contrast: 0, ...patch }));
+
+test('contrast pivot and separate tonal ranges change the intended samples', () => {
+  const ramp = Uint8ClampedArray.from([40, 127, 225].flatMap((value) => gray(value)));
+  const redValues = (data) => [data[0], data[4], data[8]];
+  const lift = redValues(adjusted(ramp, 3, 1, { shadows: 50 }).colors);
+  const mids = redValues(adjusted(ramp, 3, 1, { midtones: 50 }).colors);
+  const pull = redValues(adjusted(ramp, 3, 1, { highlights: -50 }).colors);
+  assert.ok(lift[0] - 40 > lift[2] - 225);
+  assert.ok(mids[1] - 127 > mids[0] - 40 && mids[1] - 127 > mids[2] - 225);
+  assert.ok(225 - pull[2] > 40 - pull[0]);
+  assert.ok(adjusted(ramp, 3, 1, { contrast: 70, contrastPivot: 20 }).colors[4] >
+    adjusted(ramp, 3, 1, { contrast: 70, contrastPivot: 80 }).colors[4]);
+  assert.deepEqual([...ramp], [40, 127, 225].flatMap((value) => gray(value)));
+});
+
+test('softening and detail move edge contrast opposite ways without bleeding into transparency', () => {
+  const edge = Uint8ClampedArray.from([100, 100, 100, 100, 175, 175, 175, 175].flatMap((value) => gray(value)));
+  const soft = adjusted(edge, 8, 1, { soften: 100 }).colors;
+  const sharp = adjusted(edge, 8, 1, { detail: 50 }).colors;
+  assert.ok(soft[12] > 100 && soft[16] < 175);
+  assert.ok(sharp[12] < 100 && sharp[16] > 175);
+  const alpha = Uint8ClampedArray.from([...gray(255, 0), ...gray(80), ...gray(255, 0)]);
+  assert.deepEqual([...adjusted(alpha, 3, 1, { soften: 100 }).colors], [0, 0, 0, 0, 80, 80, 80, 255, 0, 0, 0, 0]);
+});
+
+test('grain repeats by seed, posterization limits levels, and threshold produces black and white', () => {
+  const input = Uint8ClampedArray.from(Array.from({ length: 256 }, (_, n) => gray(n)).flat());
+  const grain = (seed) => adjusted(input, 16, 16, { grain: 70, seed }).colors;
+  assert.deepEqual(grain(25), grain(25));
+  assert.notDeepEqual(grain(25), grain(26));
+  const { colors } = adjusted(input, 16, 16, { posterize: 4 });
+  assert.deepEqual([...new Set(colors.filter((_, i) => i % 4 === 0))], [0, 85, 170, 255]);
+  const { histogram } = adjusted(input, 16, 16, { hardThreshold: true, cutoff: 60 });
+  assert.equal(histogram[0] + histogram[255], 256);
+  assert.ok(histogram[0] > histogram[255]);
+});
+
+test('white balance and duotone affect output and the adjusted image is provided on request', () => {
+  const white = Uint8ClampedArray.from(gray(128));
+  const warm = adjusted(white, 1, 1, { temperature: 50 }).colors;
+  assert.ok(warm[0] > warm[2]);
+  const source = pixels(1, 1, (_, y) => gray(y < 4 ? 0 : 255));
+  const settings = { contrast: 0, mode: 'half', color: 'duotone', lowInk: '#223344', highInk: '#aaccee' };
+  const art = convert(source, 1, 1, atlas, settings, { preview: true });
+  assert.ok(art.processed instanceof Uint8ClampedArray);
+  assert.deepEqual([...art.foreground], [34, 51, 68, 255]);
+  assert.deepEqual([...art.background], [170, 204, 238, 255]);
+  assert.equal(convert(source, 1, 1, atlas, settings).processed, null);
+});
+
+test('style variations repeat from the same state, advance the seed and preserve framing', () => {
+  const original = { ...DEFAULTS, columns: 216, rotation: 90 };
+  const first = varySettings(original);
+  assert.deepEqual(first, varySettings(original));
+  const next = normalizeSettings({ ...original, ...first });
+  assert.equal(next.seed, original.seed + 1);
+  assert.equal(next.columns, 216);
+  assert.equal(next.rotation, 90);
+  assert.notDeepEqual(first, varySettings(next));
+  const names = PRESETS.map(([name]) => name);
+  assert.equal(names.length, 18);
+  assert.equal(new Set(names).size, names.length);
 });

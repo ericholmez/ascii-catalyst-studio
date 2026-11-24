@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a reproducible Studio or conversion issue
+about: Report a reproducible editor or conversion issue
 ---
 
 ## What happened
